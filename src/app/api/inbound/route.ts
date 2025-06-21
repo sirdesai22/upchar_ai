@@ -50,7 +50,9 @@ export async function POST(request: Request) {
     console.log('🔍 Patient info detection:', {
       hasAge: /\d+\s*(?:yrs?|years?|age)/i.test(incomingMessage),
       hasGender: /\b(?:male|female|m|f)\b/i.test(incomingMessage),
-      hasDisease: /\b(?:headache|fever|pain|diabetes|heart|asthma|cancer|stroke|hypertension|diabetes|asthma|pneumonia|fever|chest pain|breathing difficulty|severe pain|bleeding|unconscious|seizure|allergic reaction|heart_problem|heart disease|cardiac|headache|cold|cough|fever|stomach ache|back pain|joint pain|skin rash|eye problem|ear pain|dental issue)\b/i.test(incomingMessage)
+      hasDisease: /\b(?:headache|fever|pain|diabetes|heart|asthma|cancer|stroke|hypertension|diabetes|asthma|pneumonia|fever|chest pain|breathing difficulty|severe pain|bleeding|unconscious|seizure|allergic reaction|heart_problem|heart disease|cardiac|headache|cold|cough|fever|stomach ache|back pain|joint pain|skin rash|eye problem|ear pain|dental issue)\b/i.test(incomingMessage),
+      hasName: /^[A-Za-z\s]{2,20}$/.test(incomingMessage.trim()),
+      hasLanguage: /\b(?:english|hindi|marathi|gujarati|tamil|telugu|kannada|malayalam|punjabi|bengali|urdu)\b/i.test(incomingMessage)
     });
     console.log('🔍 Greeting keywords found:', {
       hello: incomingMessage.toLowerCase().includes('hello'),
@@ -108,7 +110,14 @@ export async function POST(request: Request) {
       const patientExists = await geminiService.checkPatientExists(fromNumber);
       console.log('👤 Patient exists check result:', patientExists);
       
-      if (!patientExists && hasPatientInfo) {
+      // Check if we have an existing session for this phone number
+      const { getPatientSession } = await import('@/lib/patient-sessions');
+      const existingSession = getPatientSession(fromNumber);
+      const hasExistingSession = existingSession.name || existingSession.age || existingSession.gender || existingSession.disease || existingSession.language;
+      
+      console.log('📝 Existing session check:', { hasExistingSession, session: existingSession });
+      
+      if (!patientExists && (hasPatientInfo || hasExistingSession)) {
         console.log('📝 Detected potential patient registration data');
         console.log('📨 Message:', incomingMessage);
         console.log('📱 From:', fromNumber);
