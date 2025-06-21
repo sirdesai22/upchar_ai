@@ -91,14 +91,14 @@ class SarvamService {
 
       const response = await this.client.text.translate({
         input: text,
-        source_language_code: sourceLanguageCode,
-        target_language_code: targetLanguageCode,
+        source_language_code: sourceLanguageCode as any,
+        target_language_code: targetLanguageCode as any,
         speaker_gender: options.speakerGender || 'Male'
       });
 
       return {
         success: true,
-        translatedText: response.translated_text || response.output || text,
+        translatedText: response.translated_text || text,
         originalText: text,
         targetLanguage: targetLanguageCode
       };

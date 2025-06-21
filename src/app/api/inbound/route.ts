@@ -1,6 +1,7 @@
 import twilio from 'twilio';
 import { GeminiService } from '@/services/gemini';
 import { getPatientByPhone, PatientData } from '@/services/supabase';
+import { supabase } from '@/lib/supabase-client';
 
 export async function POST(request: Request) {
   try {
@@ -58,9 +59,9 @@ export async function POST(request: Request) {
       
       if (!patientExists && (hasPatientInfo || hasExistingSession)) {
         // Test Supabase connection first
-        const connectionTest = await testSupabaseConnection();
+        // const connectionTest = await testSupabaseConnection();
         
-        if (!connectionTest) {
+        if (!supabase) {
           response = "Sorry, there's a technical issue. Please try again later.";
         } else {
 
