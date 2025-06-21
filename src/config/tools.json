@@ -1,0 +1,35 @@
+[
+  {
+    "name": "add",
+    "description": "Add two numbers together",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "type": "number",
+          "description": "First number"
+        },
+        "b": {
+          "type": "number",
+          "description": "Second number"
+        }
+      },
+      "required": ["a", "b"]
+    }
+  },
+  {
+    "name": "calendar Prioritization",
+    "description": "Prioritize the calendar events based on the priority of the events",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "description": "The calendar events to prioritize in the format of [event_name, event_start_time, event_end_time, event_priority]"
+        }
+      },
+      "required": ["events"],
+      "confirmationRequired": false
+    }
+  }
+] 
