@@ -5,7 +5,7 @@ export interface AgentResponse {
   message: string;
   events?: CalendarEvent[];
   insights?: string;
-  action?: 'list' | 'create' | 'update' | 'delete' | 'insights';
+  action?: 'list' | 'create' | 'update' | 'delete' | 'insights' | 'chat' | 'error';
 }
 
 export class AIAgent {
@@ -20,7 +20,7 @@ export class AIAgent {
   async processMessage(message: string, conversationHistory: ChatMessage[] = []): Promise<AgentResponse> {
     try {
       // Add user message to history
-      const updatedHistory = [...conversationHistory, { role: 'user', content: message }];
+      const updatedHistory = [...conversationHistory, { role: 'user' as const, content: message }];
 
       // Check if message is calendar-related
       const calendarIntent = this.detectCalendarIntent(message);
@@ -117,7 +117,7 @@ export class AIAgent {
     Use current timezone if not specified.`;
     
     const extractionResponse = await this.geminiService.chat([
-      { role: 'user', content: eventPrompt }
+      { role: 'user' as const, content: eventPrompt }
     ]);
 
     // Parse the response and create event
@@ -127,7 +127,7 @@ export class AIAgent {
       
       const response = await this.geminiService.chat([
         ...conversationHistory,
-        { role: 'assistant', content: `I've created the event: ${newEvent.summary}` }
+        { role: 'assistant' as const, content: `I've created the event: ${newEvent.summary}` }
       ]);
 
       return {
@@ -147,7 +147,7 @@ export class AIAgent {
     // This would require more sophisticated parsing to identify which event to update
     const response = await this.geminiService.chat([
       ...conversationHistory,
-      { role: 'assistant', content: 'I can help you update events. Please specify which event you\'d like to modify and what changes you want to make.' }
+      { role: 'assistant' as const, content: 'I can help you update events. Please specify which event you\'d like to modify and what changes you want to make.' }
     ]);
 
     return {
@@ -160,7 +160,7 @@ export class AIAgent {
     // This would require event identification logic
     const response = await this.geminiService.chat([
       ...conversationHistory,
-      { role: 'assistant', content: 'I can help you delete events. Please specify which event you\'d like to remove.' }
+      { role: 'assistant' as const, content: 'I can help you delete events. Please specify which event you\'d like to remove.' }
     ]);
 
     return {
@@ -174,7 +174,7 @@ export class AIAgent {
     const insights = await this.geminiService.generateCalendarInsights(events);
     const response = await this.geminiService.chat([
       ...conversationHistory,
-      { role: 'assistant', content: insights }
+      { role: 'assistant' as const, content: insights }
     ]);
 
     return {
