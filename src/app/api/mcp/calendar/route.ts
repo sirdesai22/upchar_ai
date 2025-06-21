@@ -1,92 +1,79 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { config } from '@/config/env';
+
+// Initialize Google Calendar API
+const calendar = google.calendar('v3');
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const { method, params } = await request.json();
 
-    const body = await request.json();
-    const { method, params } = body;
-
-    // Create OAuth2 client
-    const oauth2Client = new google.auth.OAuth2();
-    oauth2Client.setCredentials({
-      access_token: session.accessToken
+    // For demo purposes, we'll use a service account or API key
+    // In production, you'd want proper OAuth2 flow
+    const auth = new google.auth.GoogleAuth({
+      keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      scopes: ['https://www.googleapis.com/auth/calendar'],
     });
 
-    // Create calendar client
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    const authClient = await auth.getClient();
 
     let result;
 
     switch (method) {
-      case 'list_events':
+      case 'calendar.events.list':
         result = await calendar.events.list({
-          calendarId: 'primary',
-          timeMin: params.timeMin,
-          timeMax: params.timeMax,
-          maxResults: params.maxResults || 10,
-          singleEvents: true,
-          orderBy: 'startTime'
+          auth: authClient,
+          ...params,
         });
         break;
 
-      case 'create_event':
+      case 'calendar.events.insert':
         result = await calendar.events.insert({
-          calendarId: 'primary',
-          requestBody: {
-            summary: params.summary,
-            description: params.description,
-            start: {
-              dateTime: params.start.dateTime,
-              timeZone: params.start.timeZone
-            },
-            end: {
-              dateTime: params.end.dateTime,
-              timeZone: params.end.timeZone
-            }
-          }
+          auth: authClient,
+          ...params,
         });
         break;
 
-      case 'update_event':
+      case 'calendar.events.update':
         result = await calendar.events.update({
-          calendarId: 'primary',
-          eventId: params.eventId,
-          requestBody: {
-            summary: params.summary,
-            description: params.description,
-            start: {
-              dateTime: params.start.dateTime,
-              timeZone: params.start.timeZone
-            },
-            end: {
-              dateTime: params.end.dateTime,
-              timeZone: params.end.timeZone
-            }
-          }
+          auth: authClient,
+          ...params,
         });
         break;
 
-      case 'delete_event':
+      case 'calendar.events.delete':
         result = await calendar.events.delete({
-          calendarId: 'primary',
-          eventId: params.eventId
+          auth: authClient,
+          ...params,
+        });
+        break;
+
+      case 'calendar.calendarList.list':
+        result = await calendar.calendarList.list({
+          auth: authClient,
+          ...params,
         });
         break;
 
       default:
-        return NextResponse.json({ error: 'Unknown method' }, { status: 400 });
+        return NextResponse.json(
+          { success: false, error: 'Unknown method' },
+          { status: 400 }
+        );
     }
 
-    return NextResponse.json({ result: result.data });
+    return NextResponse.json({
+      success: true,
+      data: result.data,
+    });
   } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      },
+      { status: 500 }
+    );
   }
 } 
