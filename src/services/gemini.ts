@@ -1,7 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '@/config/env';
-import { checkPhoneExists, insertPatient } from './supabase';
+import { checkPhoneExists, insertPatient, PatientData } from './supabase';
 import { getPatientSession, updatePatientSession, clearPatientSession, isSessionComplete, getMissingFields } from '@/lib/patient-sessions';
+import { sarvamService } from './sarvam';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -23,7 +24,8 @@ export interface CalendarEvent {
   location?: string;
 }
 
-export interface PatientData {
+// Local interface for patient data during processing
+export interface PatientDataInput {
   name: string;
   age: number;
   gender: 'Male' | 'Female' | 'Other';
@@ -64,9 +66,9 @@ export class GeminiService {
    * Extract patient data from a message
    * @param message - The message containing patient information
    * @param phoneNumber - The patient's phone number
-   * @returns Promise<PatientData | null> - Extracted patient data or null if invalid
+   * @returns Promise<PatientDataInput | null> - Extracted patient data or null if invalid
    */
-  async extractPatientData(message: string, phoneNumber: string): Promise<PatientData | null> {
+  async extractPatientData(message: string, phoneNumber: string): Promise<PatientDataInput | null> {
     const prompt = `Extract patient information from this message: "${message}"
 
 The message can be in different formats:
@@ -288,9 +290,18 @@ Return only the explanation, nothing else.`;
       const correctionMessage = hasCorrections ? 
         " (I've corrected some spelling in your information)" : "";
       
+      const finalMessage = `Welcome ${correctedPatientData.name}! Your registration is complete${correctionMessage}. ${diseaseExplanation} How may I help you today?`;
+      
+      // Translate the final message if needed
+      let translatedMessage = finalMessage;
+      if (correctedPatientData.language && sarvamService.isTranslationNeeded(correctedPatientData.language)) {
+        const translation = await sarvamService.translateRegistrationMessage(finalMessage, correctedPatientData.language);
+        translatedMessage = translation.success ? translation.translatedText! : finalMessage;
+      }
+      
       return {
         success: true,
-        message: `Welcome ${correctedPatientData.name}! Your registration is complete${correctionMessage}. ${diseaseExplanation} How may I help you today?`,
+        message: translatedMessage,
         patientData: insertedPatient
       };
     } catch (error) {
@@ -302,7 +313,87 @@ Return only the explanation, nothing else.`;
   }
 
   /**
-   * Generate response asking for missing fields
+   * Generate response for existing patient
+   * @param patientData - Patient data for response generation
+   * @returns Promise<string> - Generated response
+   */
+  async generateExistingPatientResponse(patientData: PatientData): Promise<string> {
+    const prompt = `You are a healthcare assistant for Upchar AI. 
+
+Patient Information:
+- Name: ${patientData.name}
+- Age: ${patientData.age} years
+- Gender: ${patientData.gender}
+- Condition: ${patientData.disease}
+- Language: ${patientData.language || 'English'}
+
+Instructions:
+- Greet the patient warmly using their name
+- Acknowledge their previous registration
+- Ask how you can help them today
+- Keep response under 2 sentences
+- Be friendly and professional
+- Respond in ${patientData.language || 'English'}
+
+Remember: This is a returning patient who is already registered.`;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      // Translate response if needed
+      if (patientData.language && sarvamService.isTranslationNeeded(patientData.language)) {
+        const translation = await sarvamService.translateGeminiResponse(text, patientData.language);
+        return translation.success ? translation.translatedText! : text;
+      }
+      
+      return text;
+    } catch (error) {
+      const fallbackResponse = `Hello ${patientData.name}! How may I help you today?`;
+      
+      // Translate fallback response if needed
+      if (patientData.language && sarvamService.isTranslationNeeded(patientData.language)) {
+        const translation = await sarvamService.translateGeminiResponse(fallbackResponse, patientData.language);
+        return translation.success ? translation.translatedText! : fallbackResponse;
+      }
+      
+      return fallbackResponse;
+    }
+  }
+
+  /**
+   * Generate response for new patient registration
+   * @param phoneNumber - Patient's phone number
+   * @returns Promise<string> - Generated response
+   */
+  async generateNewPatientResponse(phoneNumber: string): Promise<string> {
+    const prompt = `You are a healthcare assistant for Upchar AI. 
+
+Instructions:
+- Welcome a new patient to the system
+- Ask for their full name to start registration
+- Keep response under 2 sentences
+- Be welcoming and encouraging
+- Make it feel like a natural conversation
+- Use a friendly, professional tone
+
+Remember: This is a new patient who needs to register.`;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      return text;
+    } catch (error) {
+      const fallbackResponse = `Welcome to Upchar AI! To provide personalized care, I need your full name.`;
+      return fallbackResponse;
+    }
+  }
+
+  /**
+   * Generate missing fields response
    * @param session - Current patient session
    * @param missingFields - Array of missing field names
    * @returns Promise<string> - Response asking for missing information
@@ -336,6 +427,12 @@ Remember: Help the patient feel comfortable sharing their health information.`;
       const response = await result.response;
       const text = response.text();
       
+      // Translate response if needed
+      if (session.language && sarvamService.isTranslationNeeded(session.language)) {
+        const translation = await sarvamService.translateGeminiResponse(text, session.language);
+        return translation.success ? translation.translatedText! : text;
+      }
+      
       return text;
     } catch (error) {
       // Fallback response
@@ -349,71 +446,13 @@ Remember: Help the patient feel comfortable sharing their health information.`;
         }
       });
       
-      return `I need a few more details: ${fieldNames.join(', ')}. Please share this information so I can help you better.`;
-    }
-  }
-
-  /**
-   * Generate response for existing patient
-   * @param patientData - Patient information
-   * @returns Promise<string> - AI response for existing patient
-   */
-  async generateExistingPatientResponse(patientData: PatientData): Promise<string> {
-    const prompt = `You are a healthcare assistant for Upchar AI. 
-
-Patient: ${patientData.name} (${patientData.age} years, ${patientData.gender})
-Condition: ${patientData.disease}
-
-Instructions:
-- Greet warmly using their name
-- Ask "How may I help you today?"
-- Keep response under 2 sentences
-- Be caring but concise
-- Respond in ${patientData.language || 'English'}
-
-Remember: Provide support, not medical advice.`;
-
-    try {
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
+      const fallbackResponse = `I need a few more details: ${fieldNames.join(', ')}. Please share this information so I can help you better.`;
       
-      return text;
-    } catch (error) {
-      const fallbackResponse = `Hello ${patientData.name}! How may I help you today?`;
-      
-      return fallbackResponse;
-    }
-  }
-
-  /**
-   * Generate response for new patient registration
-   * @param phoneNumber - Patient's phone number
-   * @returns Promise<string> - AI response for new patient registration
-   */
-  async generateNewPatientResponse(phoneNumber: string): Promise<string> {
-    const prompt = `You are a healthcare assistant for Upchar AI. 
-
-New patient with phone ${phoneNumber} wants to register.
-
-Instructions:
-- Welcome them warmly
-- Ask for their full name first
-- Keep response under 2 sentences
-- Be friendly and encouraging
-- Make it feel easy and quick
-- Only ask for: name, age, gender, disease (language is optional, defaults to English)
-
-Example: "Welcome to Upchar AI! To provide personalized care, I need your full name."`;
-
-    try {
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
-      
-      return text;
-    } catch (error) {
-      const fallbackResponse = `Welcome to Upchar AI! To provide personalized care, I need your full name.`;
+      // Translate fallback response if needed
+      if (session.language && sarvamService.isTranslationNeeded(session.language)) {
+        const translation = await sarvamService.translateGeminiResponse(fallbackResponse, session.language);
+        return translation.success ? translation.translatedText! : fallbackResponse;
+      }
       
       return fallbackResponse;
     }
@@ -440,13 +479,26 @@ Example: "Welcome to Upchar AI! To provide personalized care, I need your full n
     }
   }
 
-  async chat(messages: ChatMessage[], calendarEvents?: CalendarEvent[]): Promise<string> {
+  /**
+   * Chat with Gemini AI
+   * @param messages - Array of chat messages
+   * @param calendarEvents - Optional calendar events for context
+   * @param patientLanguage - Patient's preferred language for translation
+   * @returns Promise<string> - AI response
+   */
+  async chat(messages: ChatMessage[], calendarEvents?: CalendarEvent[], patientLanguage?: string): Promise<string> {
     try {
       let prompt = this.buildPrompt(messages, calendarEvents);
       
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
+      
+      // Translate response if needed
+      if (patientLanguage && sarvamService.isTranslationNeeded(patientLanguage)) {
+        const translation = await sarvamService.translateGeminiResponse(text, patientLanguage);
+        return translation.success ? translation.translatedText! : text;
+      }
       
       return text;
     } catch (error) {
@@ -507,39 +559,86 @@ Please provide:
   }
 
   /**
-   * Assign priority using AI based on patient information
-   * @param patientData - Patient information
-   * @returns Promise<'High' | 'Medium' | 'Low'> - AI-assigned priority
+   * Correct spelling mistakes in patient data
+   * @param patientData - Patient data to correct
+   * @returns Promise<PatientDataInput> - Corrected patient data
    */
-  async assignPriorityWithAI(patientData: PatientData): Promise<'High' | 'Medium' | 'Low'> {
+  async correctSpellingMistakes(patientData: PatientDataInput): Promise<PatientDataInput> {
+    // Preserve original language without correction (SarvamAI will handle translation)
+    const originalLanguage = patientData.language || 'English';
+    
+    const prompt = `You are a healthcare AI assistant. Correct any spelling mistakes in this patient information while preserving the original meaning.
+
+Name: "${patientData.name}"
+Age: ${patientData.age}
+Gender: ${patientData.gender}
+Disease: "${patientData.disease}"
+Language: "${originalLanguage}"
+
+Instructions:
+- Correct spelling mistakes in name and disease
+- Keep the original meaning and intent
+- For names: keep as close to original as possible, only fix obvious mistakes
+- For diseases: correct medical terms and common words
+- Preserve the original language field exactly as provided
+- Return only the corrected data in JSON format
+
+Return format:
+{
+  "name": "corrected name",
+  "age": ${patientData.age},
+  "gender": "${patientData.gender}",
+  "disease": "corrected disease",
+  "language": "${originalLanguage}"
+}`;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text().trim();
+      
+      const correctedData = JSON.parse(text);
+      
+      // Create corrected patient data (preserve original language)
+      const correctedPatientData: PatientDataInput = {
+        name: correctedData.name || patientData.name,
+        age: correctedData.age || patientData.age,
+        gender: correctedData.gender || patientData.gender,
+        disease: correctedData.disease || patientData.disease,
+        phone_number: patientData.phone_number,
+        language: originalLanguage // Always preserve original language
+      };
+      
+      return correctedPatientData;
+    } catch (error) {
+      return patientData;
+    }
+  }
+
+  /**
+   * Assign priority using AI
+   * @param patientData - Patient data for priority assignment
+   * @returns Promise<'High' | 'Medium' | 'Low'> - Assigned priority
+   */
+  async assignPriorityWithAI(patientData: PatientDataInput): Promise<'High' | 'Medium' | 'Low'> {
     const prompt = `You are a healthcare AI assistant. Analyze this patient's information and assign a priority level.
 
 Patient Information:
 - Name: ${patientData.name}
-- Age: ${patientData.age} years
+- Age: ${patientData.age}
 - Gender: ${patientData.gender}
 - Disease/Condition: ${patientData.disease}
 - Language: ${patientData.language || 'English'}
 
-Priority Levels:
-- HIGH: Critical conditions, severe symptoms, life-threatening situations, very young children (under 5), elderly (over 70) with serious conditions
-- MEDIUM: Moderate symptoms, chronic conditions, children (5-18), seniors (60-70), pregnancy-related issues
-- LOW: Minor symptoms, routine checkups, healthy adults with mild conditions
+Priority Guidelines:
+- HIGH: Emergency conditions, severe pain, life-threatening symptoms
+  Examples: chest pain, severe bleeding, unconsciousness, difficulty breathing, severe trauma
+- MEDIUM: Moderate symptoms, chronic conditions, non-urgent but concerning
+  Examples: fever, moderate pain, chronic diseases, persistent symptoms
+- LOW: Mild symptoms, routine check-ups, minor issues
+  Examples: mild headache, cold symptoms, minor injuries, general wellness
 
-Consider:
-- Age and vulnerability
-- Severity of the condition
-- Urgency of symptoms
-- Risk factors
-
-Instructions:
-- Think carefully about the medical context
-- Consider age-related risks
-- Evaluate symptom severity
-- Return only: "High", "Medium", or "Low"
-- No explanations, just the priority level
-
-Return format: "High" or "Medium" or "Low"`;
+Return only: "High", "Medium", or "Low"`;
 
     try {
       const result = await this.model.generateContent(prompt);
@@ -560,71 +659,6 @@ Return format: "High" or "Medium" or "Low"`;
       }
     } catch (error) {
       return 'Medium';
-    }
-  }
-
-  /**
-   * Correct spelling mistakes in patient data using AI
-   * @param patientData - Patient data that may contain spelling mistakes
-   * @returns Promise<PatientData> - Corrected patient data
-   */
-  async correctSpellingMistakes(patientData: PatientData): Promise<PatientData> {
-    // Preserve original language without correction (SarvamAI will handle translation)
-    const originalLanguage = patientData.language || 'English';
-    
-    const prompt = `You are a healthcare AI assistant. Correct any spelling mistakes in this patient information while preserving the original meaning.
-
-Patient Information:
-- Name: ${patientData.name}
-- Age: ${patientData.age} years
-- Gender: ${patientData.gender}
-- Disease/Condition: ${patientData.disease}
-- Language: ${originalLanguage}
-
-Instructions:
-- Correct spelling mistakes in names and diseases only
-- Preserve the original meaning and intent
-- Keep proper nouns (names) as close to original as possible
-- Correct medical terms and common words
-- Do NOT correct or translate the language field
-- Return JSON format with corrected data
-- If no corrections needed, return the original data
-
-Examples:
-- "hedache" → "headache"
-- "diabetis" → "diabetes"
-- "fevr" → "fever"
-- "Jhon" → "John" (if it's clearly a name mistake)
-
-Return format:
-{
-  "name": "corrected name",
-  "age": ${patientData.age},
-  "gender": "${patientData.gender}",
-  "disease": "corrected disease",
-  "language": "${originalLanguage}"
-}`;
-
-    try {
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text().trim();
-      
-      const correctedData = JSON.parse(text);
-      
-      // Create corrected patient data (preserve original language)
-      const correctedPatientData: PatientData = {
-        name: correctedData.name,
-        age: correctedData.age,
-        gender: correctedData.gender,
-        disease: correctedData.disease,
-        phone_number: patientData.phone_number,
-        language: originalLanguage // Preserve original language for SarvamAI
-      };
-      
-      return correctedPatientData;
-    } catch (error) {
-      return patientData;
     }
   }
 

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/app/api/auth/[...nextauth]/route'
+import { supabase } from '@/lib/supabase-client'
 
 // Initialize Google Calendar API
 const calendar = google.calendar('v3')
@@ -41,31 +40,17 @@ async function getOAuth2Client(authorization: string) {
 // GET - List events
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
+    const authorization = request.headers.get('authorization')
+    const auth = await getOAuth2Client(authorization || '')
     
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const { searchParams } = new URL(request.url)
-    const timeMin = searchParams.get('timeMin')
-    const timeMax = searchParams.get('timeMax')
-    const maxResults = searchParams.get('maxResults') || '10'
-
-    // Create OAuth2 client
-    const oauth2Client = new google.auth.OAuth2()
-    oauth2Client.setCredentials({
-      access_token: session.accessToken
-    })
-
-    // Create calendar client
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
+    const maxResults = parseInt(searchParams.get('maxResults') || '10')
 
     const response = await calendar.events.list({
+      auth,
       calendarId: 'primary',
-      timeMin: timeMin || new Date().toISOString(),
-      timeMax: timeMax || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      maxResults: parseInt(maxResults),
+      timeMin: new Date().toISOString(),
+      maxResults,
       singleEvents: true,
       orderBy: 'startTime'
     })
@@ -89,41 +74,44 @@ export async function GET(request: NextRequest) {
 // POST - Create event
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
+    const authorization = request.headers.get('authorization')
+    const auth = await getOAuth2Client(authorization || '')
     
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const body = await request.json()
+    const { summary, description, startDateTime, endDateTime, timeZone, location, attendees } = body
+
+    const event = {
+      summary,
+      description,
+      start: {
+        dateTime: startDateTime,
+        timeZone: timeZone || 'UTC'
+      },
+      end: {
+        dateTime: endDateTime,
+        timeZone: timeZone || 'UTC'
+      },
+      location,
+      attendees
     }
 
-    const body = await request.json()
-    const { summary, description, start, end } = body
-
-    // Create OAuth2 client
-    const oauth2Client = new google.auth.OAuth2()
-    oauth2Client.setCredentials({
-      access_token: session.accessToken
-    })
-
-    // Create calendar client
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
-
     const response = await calendar.events.insert({
+      auth,
       calendarId: 'primary',
-      requestBody: {
-        summary,
-        description,
-        start: {
-          dateTime: start.dateTime,
-          timeZone: start.timeZone
-        },
-        end: {
-          dateTime: end.dateTime,
-          timeZone: end.timeZone
-        }
-      }
+      resource: event
     })
 
-    return NextResponse.json(response.data)
+    const createdEvent = {
+      id: response.data.id,
+      summary: response.data.summary,
+      description: response.data.description,
+      start: response.data.start,
+      end: response.data.end,
+      location: response.data.location,
+      attendees: response.data.attendees
+    }
+
+    return NextResponse.json(createdEvent)
   } catch (error) {
     return NextResponse.json({ error: 'Failed to create event' }, { status: 500 })
   }
@@ -132,42 +120,53 @@ export async function POST(request: NextRequest) {
 // PUT - Update event
 export async function PUT(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
+    const authorization = request.headers.get('authorization')
+    const auth = await getOAuth2Client(authorization || '')
     
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const body = await request.json()
+    const { eventId, summary, description, startDateTime, endDateTime, timeZone, location, attendees } = body
+
+    // First, get the existing event to merge with updates
+    const existingEvent = await calendar.events.get({
+      auth,
+      calendarId: 'primary',
+      eventId
+    })
+
+    const updatedEvent = {
+      ...existingEvent.data,
+      summary: summary || existingEvent.data.summary,
+      description: description || existingEvent.data.description,
+      start: {
+        dateTime: startDateTime || existingEvent.data.start?.dateTime,
+        timeZone: timeZone || existingEvent.data.start?.timeZone
+      },
+      end: {
+        dateTime: endDateTime || existingEvent.data.end?.dateTime,
+        timeZone: timeZone || existingEvent.data.end?.timeZone
+      },
+      location: location || existingEvent.data.location,
+      attendees: attendees || existingEvent.data.attendees
     }
 
-    const body = await request.json()
-    const { eventId, summary, description, start, end } = body
-
-    // Create OAuth2 client
-    const oauth2Client = new google.auth.OAuth2()
-    oauth2Client.setCredentials({
-      access_token: session.accessToken
-    })
-
-    // Create calendar client
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
-
     const response = await calendar.events.update({
+      auth,
       calendarId: 'primary',
       eventId,
-      requestBody: {
-        summary,
-        description,
-        start: {
-          dateTime: start.dateTime,
-          timeZone: start.timeZone
-        },
-        end: {
-          dateTime: end.dateTime,
-          timeZone: end.timeZone
-        }
-      }
+      resource: updatedEvent
     })
 
-    return NextResponse.json(response.data)
+    const updatedEventResponse = {
+      id: response.data.id,
+      summary: response.data.summary,
+      description: response.data.description,
+      start: response.data.start,
+      end: response.data.end,
+      location: response.data.location,
+      attendees: response.data.attendees
+    }
+
+    return NextResponse.json(updatedEventResponse)
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update event' }, { status: 500 })
   }
@@ -176,12 +175,9 @@ export async function PUT(request: NextRequest) {
 // DELETE - Delete event
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
+    const authorization = request.headers.get('authorization')
+    const auth = await getOAuth2Client(authorization || '')
     
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const { searchParams } = new URL(request.url)
     const eventId = searchParams.get('eventId')
 
@@ -189,16 +185,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Event ID is required' }, { status: 400 })
     }
 
-    // Create OAuth2 client
-    const oauth2Client = new google.auth.OAuth2()
-    oauth2Client.setCredentials({
-      access_token: session.accessToken
-    })
-
-    // Create calendar client
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client })
-
     await calendar.events.delete({
+      auth,
       calendarId: 'primary',
       eventId
     })

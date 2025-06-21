@@ -40,14 +40,7 @@ export async function POST(request: Request) {
         
         if (patientData) {
           // Generate response for existing patient
-          response = await geminiService.generateExistingPatientResponse({
-            name: patientData.name,
-            age: patientData.age,
-            gender: patientData.gender,
-            disease: patientData.disease,
-            phone_number: patientData.phone_number,
-            language: patientData.language
-          });
+          response = await geminiService.generateExistingPatientResponse(patientData);
         } else {
           // Fallback if patient data not found
           response = "Hello! How may I help you today?";
@@ -96,7 +89,7 @@ Instructions:
 
 Remember: Provide support, not medical advice.`;
 
-          response = await geminiService.chat([{ role: "user", content: contextPrompt }]);
+          response = await geminiService.chat([{ role: "user", content: contextPrompt }], undefined, patientData.language);
         } else {
           // Fallback to regular chat
           response = await geminiService.chat([{ role: "user", content: incomingMessage }]);
