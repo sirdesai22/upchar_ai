@@ -2,6 +2,7 @@ import twilio from 'twilio';
 import { GeminiService } from '@/services/gemini';
 import { getPatientByPhone, PatientData } from '@/services/supabase';
 import { supabase } from '@/lib/supabase-client';
+import calenderAgent from '@/agents/calender_agent';
 
 export async function POST(request: Request) {
   try {
@@ -10,10 +11,10 @@ export async function POST(request: Request) {
     const incomingMessage = formData.get('Body') as string;
     const fromNumber = formData.get('From') as string;
 
-    const geminiService = new GeminiService();
-    
     let response: string;
 
+    const geminiService = new GeminiService();
+    
     // Check if this is a new conversation (first message)
     const hasCommas = (incomingMessage.match(/,/g) || []).length >= 3;
     
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
       incomingMessage.toLowerCase().includes('help')
     );
     
+
     if (isGreeting) {
       // Check if patient exists in database
       const patientExists = await geminiService.checkPatientExists(fromNumber);

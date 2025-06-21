@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
-import { supabase } from '@/lib/supabase-client'
 
 // Initialize Google Calendar API
 const calendar = google.calendar('v3')
@@ -18,7 +17,7 @@ async function getOAuth2Client(request: NextRequest) {
 
   const oauth2Client = new google.auth.OAuth2()
   oauth2Client.setCredentials({
-    access_token: accessToken
+    access_token: process.env.ACCESS_TOKEN || ''
   })
 
   return oauth2Client
@@ -26,13 +25,6 @@ async function getOAuth2Client(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { method, params } = await request.json();
-
-    // For demo purposes, we'll use a service account or API key
-    // In production, you'd want proper OAuth2 flow
-    // const auth = new google.auth.GoogleAuth({
-    //   keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    //   scopes: ['https://www.googleapis.com/auth/calendar'],
-    // });
 
     const authClient = await getOAuth2Client(request);
 
@@ -88,6 +80,9 @@ export async function POST(request: NextRequest) {
       success: true,
       data: result.data,
     });
+
+
+
   } catch (error) {
     console.error('MCP Calendar API error:', error);
     return NextResponse.json(
