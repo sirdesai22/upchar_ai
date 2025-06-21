@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
+import { rescheduleByPriority, optimizeSchedule, resolveConflicts } from '@/lib/calender-scheduler';
 
 export async function POST(request: Request) {
   try {
