@@ -12,6 +12,10 @@ export const config = {
     // Set this to your Next.js app URL or a separate MCP server if you have one
     serverUrl: process.env.NEXT_PUBLIC_MCP_SERVER_URL || 'http://localhost:3000',
   },
+  supabase: {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+  },
 };
 
 export const isDevelopment = process.env.NODE_ENV === 'development'; 
