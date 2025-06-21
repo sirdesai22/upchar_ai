@@ -1,77 +1,50 @@
-// In-memory storage for patient registration sessions
-// In production, you might want to use Redis or database for this
-interface PatientSession {
-  phoneNumber: string;
-  name?: string;
-  age?: number;
-  gender?: 'Male' | 'Female' | 'Other';
-  disease?: string;
-  language?: string;
-  lastUpdated: Date;
+// In-memory storage for patient sessions
+const patientSessions: { [phoneNumber: string]: PatientSession } = {};
+
+// Clean phone number for consistent storage
+function cleanPhoneNumber(phoneNumber: string): string {
+  return phoneNumber.replace(/[\s\-\(\)]/g, '');
 }
 
-const patientSessions = new Map<string, PatientSession>();
-
-/**
- * Get or create a patient session
- * @param phoneNumber - Patient's phone number
- * @returns PatientSession - Current session data
- */
+// Get patient session by phone number
 export function getPatientSession(phoneNumber: string): PatientSession {
-  const cleanPhone = phoneNumber.replace(/[\s\-\(\)]/g, '');
-  
-  if (!patientSessions.has(cleanPhone)) {
-    patientSessions.set(cleanPhone, {
-      phoneNumber: cleanPhone,
-      lastUpdated: new Date()
-    });
-  }
-  
-  return patientSessions.get(cleanPhone)!;
+  const cleanPhone = cleanPhoneNumber(phoneNumber);
+  return patientSessions[cleanPhone] || {
+    name: null,
+    age: null,
+    gender: null,
+    disease: null,
+    language: null
+  };
 }
 
-/**
- * Update patient session with new data
- * @param phoneNumber - Patient's phone number
- * @param data - Partial patient data to update
- */
-export function updatePatientSession(phoneNumber: string, data: Partial<PatientSession>): void {
-  const cleanPhone = phoneNumber.replace(/[\s\-\(\)]/g, '');
-  const session = getPatientSession(cleanPhone);
+// Update patient session
+export function updatePatientSession(phoneNumber: string, updates: Partial<PatientSession>): void {
+  const cleanPhone = cleanPhoneNumber(phoneNumber);
+  const currentSession = getPatientSession(phoneNumber);
   
-  Object.assign(session, {
-    ...data,
-    lastUpdated: new Date()
-  });
+  // Merge updates with current session
+  const session = {
+    ...currentSession,
+    ...updates
+  };
   
-  patientSessions.set(cleanPhone, session);
-  console.log('📝 Updated patient session:', session);
+  // Store updated session
+  patientSessions[cleanPhone] = session;
 }
 
-/**
- * Clear patient session (after successful registration)
- * @param phoneNumber - Patient's phone number
- */
+// Clear patient session
 export function clearPatientSession(phoneNumber: string): void {
-  const cleanPhone = phoneNumber.replace(/[\s\-\(\)]/g, '');
-  patientSessions.delete(cleanPhone);
-  console.log('🗑️ Cleared patient session for:', cleanPhone);
+  const cleanPhone = cleanPhoneNumber(phoneNumber);
+  delete patientSessions[cleanPhone];
 }
 
-/**
- * Check if session has all required fields
- * @param session - Patient session
- * @returns boolean - True if all fields are present
- */
+// Check if session is complete
 export function isSessionComplete(session: PatientSession): boolean {
   return !!(session.name && session.age && session.gender && session.disease);
 }
 
-/**
- * Get missing fields from session
- * @param session - Patient session
- * @returns string[] - Array of missing field names
- */
+// Get missing fields from session
 export function getMissingFields(session: PatientSession): string[] {
   const missing: string[] = [];
   
@@ -79,24 +52,29 @@ export function getMissingFields(session: PatientSession): string[] {
   if (!session.age) missing.push('age');
   if (!session.gender) missing.push('gender');
   if (!session.disease) missing.push('disease');
-  // Language is optional, defaults to English
   
   return missing;
 }
 
-/**
- * Clean up old sessions (older than 1 hour)
- */
+// Clean up old sessions (optional - can be called periodically)
 export function cleanupOldSessions(): void {
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const now = Date.now();
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
   
-  for (const [phone, session] of patientSessions.entries()) {
-    if (session.lastUpdated < oneHourAgo) {
-      patientSessions.delete(phone);
-      console.log('🧹 Cleaned up old session for:', phone);
+  Object.keys(patientSessions).forEach(phone => {
+    const session = patientSessions[phone];
+    if (session.lastUpdated && (now - session.lastUpdated) > maxAge) {
+      delete patientSessions[phone];
     }
-  }
+  });
 }
 
-// Clean up old sessions every 30 minutes
-setInterval(cleanupOldSessions, 30 * 60 * 1000); 
+// Interface for patient session data
+export interface PatientSession {
+  name: string | null;
+  age: number | null;
+  gender: 'Male' | 'Female' | 'Other' | null;
+  disease: string | null;
+  language: string | null;
+  lastUpdated?: number;
+} 

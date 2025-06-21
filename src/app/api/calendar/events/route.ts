@@ -23,8 +23,6 @@ async function getOAuth2Client(request: NextRequest) {
 
   return oauth2Client
 }
-
-// GET - List events
 export async function POST(request: NextRequest) {
   try {
     const { method, params } = await request.json();

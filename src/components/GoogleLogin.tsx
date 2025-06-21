@@ -20,11 +20,9 @@ export default function GoogleLogin() {
       })
 
       if (error) {
-        console.error('Error signing in with Google:', error)
         alert('Error signing in with Google: ' + error.message)
       }
     } catch (error) {
-      console.error('Unexpected error:', error)
       alert('An unexpected error occurred')
     } finally {
       setLoading(false)
@@ -35,12 +33,12 @@ export default function GoogleLogin() {
     try {
       const { error } = await supabase.auth.signOut()
       if (error) {
-        console.error('Error signing out:', error)
+        // Handle error silently
       } else {
         setUser(null)
       }
     } catch (error) {
-      console.error('Unexpected error:', error)
+      // Handle error silently
     }
   }
 

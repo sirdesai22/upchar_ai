@@ -2,23 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase-client'
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url)
+  const { searchParams } = new URL(request.url)
   const code = searchParams.get('code')
-  const next = searchParams.get('next') ?? '/'
 
   if (code) {
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-    
-    if (error) {
-      console.error('Error exchanging code for session:', error)
-      return NextResponse.redirect(`${origin}/?error=auth_callback_error`)
-    }
+    try {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+      
+      if (error) {
+        return NextResponse.redirect(new URL('/?error=auth_error', request.url))
+      }
 
-    if (data.session) {
-      return NextResponse.redirect(`${origin}${next}`)
+      return NextResponse.redirect(new URL('/', request.url))
+    } catch (error) {
+      return NextResponse.redirect(new URL('/?error=auth_error', request.url))
     }
   }
 
-  // Return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/?error=auth_callback_error`)
+  return NextResponse.redirect(new URL('/?error=no_code', request.url))
 } 

@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
     const authClient = await auth.getClient();
 
     let result;
+
     switch (method) {
       case 'calendar.events.list':
         result = await calendar.events.list({
@@ -67,7 +68,6 @@ export async function POST(request: NextRequest) {
       data: result.data,
     });
   } catch (error) {
-    console.error('MCP Calendar API error:', error);
     return NextResponse.json(
       { 
         success: false, 
