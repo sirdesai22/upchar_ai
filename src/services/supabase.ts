@@ -127,6 +127,7 @@ export async function insertPatient(patientData: {
   disease: string;
   phone_number: string;
   language?: string;
+  priority: 'High' | 'Medium' | 'Low';
 }): Promise<PatientData> {
   try {
     console.log('🚀 Starting patient data insertion...');
@@ -136,9 +137,7 @@ export async function insertPatient(patientData: {
     const cleanPhoneNumber = patientData.phone_number.replace(/[\s\-\(\)]/g, '');
     console.log('📱 Cleaned phone number:', cleanPhoneNumber);
     
-    // Calculate priority based on age and disease
-    const priority = calculatePriority(patientData.age, patientData.disease);
-    console.log('🎯 Calculated priority:', priority);
+    console.log('🎯 Priority assigned by AI:', patientData.priority);
     
     // Prepare data for insertion
     const insertData = {
@@ -148,7 +147,7 @@ export async function insertPatient(patientData: {
       disease: patientData.disease,
       phone_number: cleanPhoneNumber,
       language: patientData.language || 'English',
-      priority: priority
+      priority: patientData.priority
     };
     
     console.log('💾 Data to insert:', insertData);
@@ -192,57 +191,6 @@ export async function insertPatient(patientData: {
     console.error('❌ Error inserting patient data:', error);
     console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     throw error;
-  }
-}
-
-/**
- * Calculate priority based on age and disease (moved from Gemini service)
- * @param age - Patient's age
- * @param disease - Patient's disease/condition
- * @returns 'High' | 'Medium' | 'Low' - Calculated priority level
- */
-function calculatePriority(age: number, disease: string): 'High' | 'Medium' | 'Low' {
-  let priorityScore = 0;
-
-  // Age-based scoring
-  if (age < 5 || age > 70) {
-    priorityScore += 3; // High priority for very young and elderly
-  } else if (age < 18 || age > 60) {
-    priorityScore += 2; // Medium priority for children and seniors
-  } else {
-    priorityScore += 1; // Low priority for adults
-  }
-
-  // Disease-based scoring
-  const criticalDiseases = [
-    'heart attack', 'stroke', 'cancer', 'diabetes', 'hypertension', 
-    'asthma', 'pneumonia', 'fever', 'chest pain', 'breathing difficulty',
-    'severe pain', 'bleeding', 'unconscious', 'seizure', 'allergic reaction',
-    'heart_problem', 'heart disease', 'cardiac'
-  ];
-
-  const moderateDiseases = [
-    'headache', 'cold', 'cough', 'fever', 'stomach ache', 'back pain',
-    'joint pain', 'skin rash', 'eye problem', 'ear pain', 'dental issue'
-  ];
-
-  const diseaseLower = disease.toLowerCase();
-  
-  if (criticalDiseases.some(d => diseaseLower.includes(d))) {
-    priorityScore += 3; // High priority for critical diseases
-  } else if (moderateDiseases.some(d => diseaseLower.includes(d))) {
-    priorityScore += 2; // Medium priority for moderate diseases
-  } else {
-    priorityScore += 1; // Low priority for minor issues
-  }
-
-  // Determine final priority
-  if (priorityScore >= 5) {
-    return 'High';
-  } else if (priorityScore >= 3) {
-    return 'Medium';
-  } else {
-    return 'Low';
   }
 }
 
