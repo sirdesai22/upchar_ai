@@ -1,9 +1,11 @@
-import ChatInterface from '@/components/chat-interface';
+import React from 'react'
 
-export default function Home() {
+type Props = {}
+
+const page = (props: Props) => {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <ChatInterface/>
-    </div>
-  );
+    <div>page</div>
+  )
 }
+
+export default page
