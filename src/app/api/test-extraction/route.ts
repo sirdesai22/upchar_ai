@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     if (extractedData) {
       // Test database insertion
       const { insertPatient } = await import('@/services/supabase');
-      const insertedData = await insertPatient(extractedData);
+      const insertedData = await insertPatient(extractedData as any);
       
       return Response.json({
         success: true,
