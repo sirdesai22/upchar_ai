@@ -14,8 +14,8 @@ export default function GoogleLogin() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-          // scopes: 'email profile https://www.googleapis.com/auth/calendar'
+          redirectTo: `https://kkekzglmarngrphfjhai.supabase.co/auth/v1/callback`,
+          scopes: 'https://www.googleapis.com/auth/calendar'
         }
       })
 

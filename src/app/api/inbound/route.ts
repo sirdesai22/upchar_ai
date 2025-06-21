@@ -1,7 +1,6 @@
 import twilio from 'twilio';
 import { GeminiService } from '@/services/gemini';
 import { getPatientByPhone, PatientData } from '@/services/supabase';
-import { testSupabaseConnection } from '@/lib/supabase-client';
 
 export async function POST(request: Request) {
   try {
@@ -64,6 +63,7 @@ export async function POST(request: Request) {
         if (!connectionTest) {
           response = "Sorry, there's a technical issue. Please try again later.";
         } else {
+
           // Try to process and store patient data
           const result = await geminiService.processAndStorePatientData(incomingMessage, fromNumber);
           

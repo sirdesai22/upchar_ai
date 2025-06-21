@@ -57,10 +57,19 @@ export default function Calendar() {
     attendees: ''
   })
 
-  // Get auth token for API calls
-  const getAuthToken = async () => {
+  // Get access token from URL or session
+  const getAccessToken = async () => {
+    // First try to get from URL parameters
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlToken = urlParams.get('access_token')
+    
+    if (urlToken) {
+      return urlToken
+    }
+    
+    // Fallback to session token
     const { data: { session } } = await supabase.auth.getSession()
-    return session?.access_token
+    return session?.provider_token || session?.access_token
   }
 
   useEffect(() => {
@@ -72,16 +81,12 @@ export default function Calendar() {
       setLoading(true)
       setError(null)
       
-      const token = await getAuthToken()
+      const token = await getAccessToken()
       if (!token) {
-        throw new Error('No authentication token available')
+        throw new Error('No access token available')
       }
 
-      const response = await fetch('/api/calendar/events?maxResults=20', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const response = await fetch(`/api/calendar/events?maxResults=20&access_token=${encodeURIComponent(token)}`)
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -103,9 +108,9 @@ export default function Calendar() {
       setLoading(true)
       setError(null)
 
-      const token = await getAuthToken()
+      const token = await getAccessToken()
       if (!token) {
-        throw new Error('No authentication token available')
+        throw new Error('No access token available')
       }
 
       const attendees = formData.attendees
@@ -121,11 +126,10 @@ export default function Calendar() {
         attendees
       }
 
-      const response = await fetch('/api/calendar/events', {
+      const response = await fetch(`/api/calendar/events?access_token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(eventData)
       })
@@ -153,9 +157,9 @@ export default function Calendar() {
       setLoading(true)
       setError(null)
 
-      const token = await getAuthToken()
+      const token = await getAccessToken()
       if (!token) {
-        throw new Error('No authentication token available')
+        throw new Error('No access token available')
       }
 
       const attendees = formData.attendees
@@ -172,11 +176,10 @@ export default function Calendar() {
         attendees
       }
 
-      const response = await fetch('/api/calendar/events', {
+      const response = await fetch(`/api/calendar/events?access_token=${encodeURIComponent(token)}`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(eventData)
       })
@@ -203,16 +206,13 @@ export default function Calendar() {
       setLoading(true)
       setError(null)
 
-      const token = await getAuthToken()
+      const token = await getAccessToken()
       if (!token) {
-        throw new Error('No authentication token available')
+        throw new Error('No access token available')
       }
 
-      const response = await fetch(`/api/calendar/events?eventId=${eventId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      const response = await fetch(`/api/calendar/events?eventId=${eventId}&access_token=${encodeURIComponent(token)}`, {
+        method: 'DELETE'
       })
 
       if (!response.ok) {

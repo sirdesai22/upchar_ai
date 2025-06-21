@@ -6,193 +6,96 @@ import { supabase } from '@/lib/supabase-client'
 const calendar = google.calendar('v3')
 
 /**
- * Get Google OAuth2 client with user's access token
+ * Get Google OAuth2 client with access token from URL
  */
-async function getOAuth2Client(authorization: string) {
-  if (!authorization || !authorization.startsWith('Bearer ')) {
-    throw new Error('No valid authorization token provided')
-  }
-
-  const token = authorization.replace('Bearer ', '')
+async function getOAuth2Client(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const accessToken = searchParams.get('access_token')
   
-  // Verify the token with Supabase
-  const { data: { user }, error } = await supabase.auth.getUser(token)
-  
-  if (error || !user) {
-    throw new Error('Invalid or expired token')
-  }
-
-  // Get the session to access provider_token
-  const { data: { session } } = await supabase.auth.getSession()
-  
-  if (!session?.provider_token) {
-    throw new Error('No Google access token available. Please sign in with Google.')
+  if (!accessToken) {
+    throw new Error('No access token provided in URL parameters')
   }
 
   const oauth2Client = new google.auth.OAuth2()
   oauth2Client.setCredentials({
-    access_token: session.provider_token
+    access_token: accessToken
   })
 
   return oauth2Client
 }
-
-// GET - List events
-export async function GET(request: NextRequest) {
-  try {
-    const authorization = request.headers.get('authorization')
-    const auth = await getOAuth2Client(authorization || '')
-    
-    const { searchParams } = new URL(request.url)
-    const maxResults = parseInt(searchParams.get('maxResults') || '10')
-
-    const response = await calendar.events.list({
-      auth,
-      calendarId: 'primary',
-      timeMin: new Date().toISOString(),
-      maxResults,
-      singleEvents: true,
-      orderBy: 'startTime'
-    })
-
-    const events = response.data.items?.map((event: any) => ({
-      id: event.id,
-      summary: event.summary,
-      description: event.description,
-      start: event.start,
-      end: event.end,
-      location: event.location,
-      attendees: event.attendees
-    })) || []
-
-    return NextResponse.json(events)
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch events' }, { status: 500 })
-  }
-}
-
-// POST - Create event
 export async function POST(request: NextRequest) {
   try {
-    const authorization = request.headers.get('authorization')
-    const auth = await getOAuth2Client(authorization || '')
-    
-    const body = await request.json()
-    const { summary, description, startDateTime, endDateTime, timeZone, location, attendees } = body
+    const { method, params } = await request.json();
 
-    const event = {
-      summary,
-      description,
-      start: {
-        dateTime: startDateTime,
-        timeZone: timeZone || 'UTC'
-      },
-      end: {
-        dateTime: endDateTime,
-        timeZone: timeZone || 'UTC'
-      },
-      location,
-      attendees
+    // For demo purposes, we'll use a service account or API key
+    // In production, you'd want proper OAuth2 flow
+    // const auth = new google.auth.GoogleAuth({
+    //   keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    //   scopes: ['https://www.googleapis.com/auth/calendar'],
+    // });
+
+    const authClient = await getOAuth2Client(request);
+
+    let result;
+    switch (method) {
+      case 'calendar.events.list':
+        result = await calendar.events.list({
+          auth: authClient,
+          calendarId: 'primary',
+        });
+        break;
+
+      case 'calendar.events.insert':
+        result = await calendar.events.insert({
+          auth: authClient,
+          calendarId: 'primary',
+          requestBody: params,
+        });
+        break;
+
+      case 'calendar.events.update':
+        result = await calendar.events.update({
+          auth: authClient,
+          calendarId: 'primary',
+          ...params,
+        });
+        break;
+
+      case 'calendar.events.delete':
+        result = await calendar.events.delete({
+          auth: authClient,
+          calendarId: 'primary',
+          ...params,
+        });
+        break;
+
+      case 'calendar.calendarList.list':
+        result = await calendar.calendarList.list({
+          auth: authClient,
+          calendarId: 'primary',
+          ...params,
+        });
+        break;
+
+      default:
+        return NextResponse.json(
+          { success: false, error: 'Unknown method' },
+          { status: 400 }
+        );
     }
 
-    const response = await calendar.events.insert({
-      auth,
-      calendarId: 'primary',
-      resource: event
-    })
-
-    const createdEvent = {
-      id: response.data.id,
-      summary: response.data.summary,
-      description: response.data.description,
-      start: response.data.start,
-      end: response.data.end,
-      location: response.data.location,
-      attendees: response.data.attendees
-    }
-
-    return NextResponse.json(createdEvent)
+    return NextResponse.json({
+      success: true,
+      data: result.data,
+    });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to create event' }, { status: 500 })
-  }
-}
-
-// PUT - Update event
-export async function PUT(request: NextRequest) {
-  try {
-    const authorization = request.headers.get('authorization')
-    const auth = await getOAuth2Client(authorization || '')
-    
-    const body = await request.json()
-    const { eventId, summary, description, startDateTime, endDateTime, timeZone, location, attendees } = body
-
-    // First, get the existing event to merge with updates
-    const existingEvent = await calendar.events.get({
-      auth,
-      calendarId: 'primary',
-      eventId
-    })
-
-    const updatedEvent = {
-      ...existingEvent.data,
-      summary: summary || existingEvent.data.summary,
-      description: description || existingEvent.data.description,
-      start: {
-        dateTime: startDateTime || existingEvent.data.start?.dateTime,
-        timeZone: timeZone || existingEvent.data.start?.timeZone
+    console.error('MCP Calendar API error:', error);
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
       },
-      end: {
-        dateTime: endDateTime || existingEvent.data.end?.dateTime,
-        timeZone: timeZone || existingEvent.data.end?.timeZone
-      },
-      location: location || existingEvent.data.location,
-      attendees: attendees || existingEvent.data.attendees
-    }
-
-    const response = await calendar.events.update({
-      auth,
-      calendarId: 'primary',
-      eventId,
-      resource: updatedEvent
-    })
-
-    const updatedEventResponse = {
-      id: response.data.id,
-      summary: response.data.summary,
-      description: response.data.description,
-      start: response.data.start,
-      end: response.data.end,
-      location: response.data.location,
-      attendees: response.data.attendees
-    }
-
-    return NextResponse.json(updatedEventResponse)
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to update event' }, { status: 500 })
-  }
-}
-
-// DELETE - Delete event
-export async function DELETE(request: NextRequest) {
-  try {
-    const authorization = request.headers.get('authorization')
-    const auth = await getOAuth2Client(authorization || '')
-    
-    const { searchParams } = new URL(request.url)
-    const eventId = searchParams.get('eventId')
-
-    if (!eventId) {
-      return NextResponse.json({ error: 'Event ID is required' }, { status: 400 })
-    }
-
-    await calendar.events.delete({
-      auth,
-      calendarId: 'primary',
-      eventId
-    })
-
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to delete event' }, { status: 500 })
+      { status: 500 }
+    );
   }
 } 
