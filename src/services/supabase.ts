@@ -1,4 +1,4 @@
-import { supabase, testSupabaseConnection } from '@/lib/supabase-client';
+import { supabase } from '@/lib/supabase-client';
 
 export interface PatientData {
   id: string;
@@ -193,6 +193,3 @@ export async function insertPatient(patientData: {
     throw error;
   }
 }
-
-// Re-export the test function for convenience
-export { testSupabaseConnection }; 
