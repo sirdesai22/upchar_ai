@@ -1,11 +1,7 @@
+'use client'
 import React from 'react'
+import GoogleLogin from '@/components/GoogleLogin'
 
-type Props = {}
-
-const page = (props: Props) => {
-  return (
-    <div>page</div>
-  )
+export default function Page() {
+  return <GoogleLogin />
 }
-
-export default page
