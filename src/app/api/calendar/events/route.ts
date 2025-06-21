@@ -6,32 +6,19 @@ import { supabase } from '@/lib/supabase-client'
 const calendar = google.calendar('v3')
 
 /**
- * Get Google OAuth2 client with user's access token
+ * Get Google OAuth2 client with access token from URL
  */
-async function getOAuth2Client(authorization: string) {
-  if (!authorization || !authorization.startsWith('Bearer ')) {
-    throw new Error('No valid authorization token provided')
-  }
-
-  const token = authorization.replace('Bearer ', '')
+async function getOAuth2Client(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const accessToken = searchParams.get('access_token')
   
-  // Verify the token with Supabase
-  const { data: { user }, error } = await supabase.auth.getUser(token)
-  
-  if (error || !user) {
-    throw new Error('Invalid or expired token')
-  }
-
-  // Get the session to access provider_token
-  const { data: { session } } = await supabase.auth.getSession()
-  
-  if (!session?.provider_token) {
-    throw new Error('No Google access token available. Please sign in with Google.')
+  if (!accessToken) {
+    throw new Error('No access token provided in URL parameters')
   }
 
   const oauth2Client = new google.auth.OAuth2()
   oauth2Client.setCredentials({
-    access_token: session.provider_token
+    access_token: accessToken
   })
 
   return oauth2Client
@@ -40,8 +27,7 @@ async function getOAuth2Client(authorization: string) {
 // GET - List events
 export async function GET(request: NextRequest) {
   try {
-    const authorization = request.headers.get('authorization')
-    const auth = await getOAuth2Client(authorization || '')
+    const auth = await getOAuth2Client(request)
     
     const { searchParams } = new URL(request.url)
     const maxResults = parseInt(searchParams.get('maxResults') || '10')
@@ -78,8 +64,7 @@ export async function GET(request: NextRequest) {
 // POST - Create event
 export async function POST(request: NextRequest) {
   try {
-    const authorization = request.headers.get('authorization')
-    const auth = await getOAuth2Client(authorization || '')
+    const auth = await getOAuth2Client(request)
     
     const body = await request.json()
     const { summary, description, startDateTime, endDateTime, timeZone, location, attendees } = body
@@ -102,7 +87,7 @@ export async function POST(request: NextRequest) {
     const response = await calendar.events.insert({
       auth,
       calendarId: 'primary',
-      resource: event
+      requestBody: event
     })
 
     const createdEvent = {
@@ -128,8 +113,7 @@ export async function POST(request: NextRequest) {
 // PUT - Update event
 export async function PUT(request: NextRequest) {
   try {
-    const authorization = request.headers.get('authorization')
-    const auth = await getOAuth2Client(authorization || '')
+    const auth = await getOAuth2Client(request)
     
     const body = await request.json()
     const { eventId, summary, description, startDateTime, endDateTime, timeZone, location, attendees } = body
@@ -161,7 +145,7 @@ export async function PUT(request: NextRequest) {
       auth,
       calendarId: 'primary',
       eventId,
-      resource: updatedEvent
+      requestBody: updatedEvent
     })
 
     const updatedEventResponse = {
@@ -187,8 +171,7 @@ export async function PUT(request: NextRequest) {
 // DELETE - Delete event
 export async function DELETE(request: NextRequest) {
   try {
-    const authorization = request.headers.get('authorization')
-    const auth = await getOAuth2Client(authorization || '')
+    const auth = await getOAuth2Client(request)
     
     const { searchParams } = new URL(request.url)
     const eventId = searchParams.get('eventId')
