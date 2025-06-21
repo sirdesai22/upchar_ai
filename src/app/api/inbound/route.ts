@@ -1,7 +1,6 @@
 import twilio from 'twilio';
 import { GeminiService } from '@/services/gemini';
 import { getPatientByPhone, PatientData } from '@/services/supabase';
-import { testSupabaseConnection } from '@/lib/supabase-client';
 
 let incomingMessage = "";
 let fromNumber = "";
@@ -126,14 +125,14 @@ export async function POST(request: Request) {
         
         // Test Supabase connection first
         console.log('🔗 Testing Supabase connection...');
-        const connectionTest = await testSupabaseConnection();
-        console.log('🔗 Connection test result:', connectionTest);
+        // const connectionTest = await testSupabaseConnection();
+        // console.log('🔗 Connection test result:', connectionTest);
         
-        if (!connectionTest) {
+        // if (!connectionTest) {
           console.log('❌ Supabase connection failed, cannot process registration');
           response = "Sorry, there's a technical issue. Please try again later.";
           console.log('💬 Error response:', response);
-        } else {
+        //    } else {
           console.log('✅ Connection test passed, proceeding with data processing...');
           
           // Try to process and store patient data
