@@ -1,79 +1,92 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { config } from '@/config/env';
-
-// Initialize Google Calendar API
-const calendar = google.calendar('v3');
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 
 export async function POST(request: NextRequest) {
   try {
-    const { method, params } = await request.json();
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.accessToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-    // For demo purposes, we'll use a service account or API key
-    // In production, you'd want proper OAuth2 flow
-    const auth = new google.auth.GoogleAuth({
-      keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-      scopes: ['https://www.googleapis.com/auth/calendar'],
+    const body = await request.json();
+    const { method, params } = body;
+
+    // Create OAuth2 client
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({
+      access_token: session.accessToken
     });
 
-    const authClient = await auth.getClient();
+    // Create calendar client
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
     let result;
+
     switch (method) {
-      case 'calendar.events.list':
+      case 'list_events':
         result = await calendar.events.list({
-          auth: authClient,
-          ...params,
+          calendarId: 'primary',
+          timeMin: params.timeMin,
+          timeMax: params.timeMax,
+          maxResults: params.maxResults || 10,
+          singleEvents: true,
+          orderBy: 'startTime'
         });
         break;
 
-      case 'calendar.events.insert':
+      case 'create_event':
         result = await calendar.events.insert({
-          auth: authClient,
-          ...params,
+          calendarId: 'primary',
+          requestBody: {
+            summary: params.summary,
+            description: params.description,
+            start: {
+              dateTime: params.start.dateTime,
+              timeZone: params.start.timeZone
+            },
+            end: {
+              dateTime: params.end.dateTime,
+              timeZone: params.end.timeZone
+            }
+          }
         });
         break;
 
-      case 'calendar.events.update':
+      case 'update_event':
         result = await calendar.events.update({
-          auth: authClient,
-          ...params,
+          calendarId: 'primary',
+          eventId: params.eventId,
+          requestBody: {
+            summary: params.summary,
+            description: params.description,
+            start: {
+              dateTime: params.start.dateTime,
+              timeZone: params.start.timeZone
+            },
+            end: {
+              dateTime: params.end.dateTime,
+              timeZone: params.end.timeZone
+            }
+          }
         });
         break;
 
-      case 'calendar.events.delete':
+      case 'delete_event':
         result = await calendar.events.delete({
-          auth: authClient,
-          ...params,
-        });
-        break;
-
-      case 'calendar.calendarList.list':
-        result = await calendar.calendarList.list({
-          auth: authClient,
-          ...params,
+          calendarId: 'primary',
+          eventId: params.eventId
         });
         break;
 
       default:
-        return NextResponse.json(
-          { success: false, error: 'Unknown method' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Unknown method' }, { status: 400 });
     }
 
-    return NextResponse.json({
-      success: true,
-      data: result.data,
-    });
+    return NextResponse.json({ result: result.data });
   } catch (error) {
-    console.error('MCP Calendar API error:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 } 

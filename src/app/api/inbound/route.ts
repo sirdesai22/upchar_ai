@@ -5,18 +5,12 @@ import { testSupabaseConnection } from '@/lib/supabase-client';
 
 export async function POST(request: Request) {
   try {
-    console.log('🚀 === INBOUND API START ===');
-    
     // Parse the incoming form data from Twilio
     const formData = await request.formData();
     const incomingMessage = formData.get('Body') as string;
     const fromNumber = formData.get('From') as string;
-    
-    console.log('📨 Raw incoming message:', incomingMessage);
-    console.log('📱 Phone number:', fromNumber);
 
     const geminiService = new GeminiService();
-    console.log('🤖 Gemini service initialized');
     
     let response: string;
 
@@ -36,28 +30,15 @@ export async function POST(request: Request) {
       incomingMessage.toLowerCase().includes('help')
     );
     
-    console.log('🔍 Message analysis:', { 
-      hasCommas, 
-      hasPatientInfo,
-      isGreeting
-    });
-    
     if (isGreeting) {
-      console.log('👋 Processing greeting message...');
-      
       // Check if patient exists in database
-      console.log('🔍 Checking if patient exists in database...');
       const patientExists = await geminiService.checkPatientExists(fromNumber);
-      console.log('👤 Patient exists check result:', patientExists);
       
       if (patientExists) {
-        console.log('✅ Patient found in database, getting patient data...');
         // Get patient data from database
         const patientData = await getPatientByPhone(fromNumber);
-        console.log('📋 Retrieved patient data:', patientData);
         
         if (patientData) {
-          console.log('✅ Patient data retrieved successfully, generating response...');
           // Generate response for existing patient
           response = await geminiService.generateExistingPatientResponse({
             name: patientData.name,
@@ -67,76 +48,39 @@ export async function POST(request: Request) {
             phone_number: patientData.phone_number,
             language: patientData.language
           });
-          console.log('💬 Generated existing patient response:', response);
         } else {
-          console.log('⚠️ Patient exists but data retrieval failed, using fallback...');
           // Fallback if patient data not found
           response = "Hello! How may I help you today?";
-          console.log('💬 Fallback response:', response);
         }
       } else {
-        console.log('🆕 New patient detected, generating registration response...');
         // Generate response for new patient registration
         response = await geminiService.generateNewPatientResponse(fromNumber);
-        console.log('💬 Generated new patient response:', response);
       }
     } else {
-      console.log('💬 Processing non-greeting message...');
-      
-      console.log('🔍 Checking if patient exists in database...');
       const patientExists = await geminiService.checkPatientExists(fromNumber);
-      console.log('👤 Patient exists check result:', patientExists);
       
       // Check if we have an existing session for this phone number
       const { getPatientSession } = await import('@/lib/patient-sessions');
       const existingSession = getPatientSession(fromNumber);
       const hasExistingSession = existingSession.name || existingSession.age || existingSession.gender || existingSession.disease || existingSession.language;
       
-      console.log('📝 Existing session check:', { hasExistingSession });
-      
       if (!patientExists && (hasPatientInfo || hasExistingSession)) {
-        console.log('📝 Detected potential patient registration data');
-        
         // Test Supabase connection first
-        console.log('🔗 Testing Supabase connection...');
         const connectionTest = await testSupabaseConnection();
-        console.log('🔗 Connection test result:', connectionTest);
         
         if (!connectionTest) {
-          console.log('❌ Supabase connection failed, cannot process registration');
           response = "Sorry, there's a technical issue. Please try again later.";
-          console.log('💬 Error response:', response);
         } else {
-          console.log('✅ Connection test passed, proceeding with data processing...');
-          
           // Try to process and store patient data
-          console.log('🔄 Calling processAndStorePatientData...');
           const result = await geminiService.processAndStorePatientData(incomingMessage, fromNumber);
           
-          console.log('📊 Processing result:', {
-            success: result.success,
-            message: result.message,
-            hasPatientData: !!result.patientData
-          });
-          
-          if (result.success) {
-            console.log('✅ Patient registration successful via API');
-          } else {
-            console.log('❌ Patient registration failed via API:', result.message);
-          }
-          
           response = result.message;
-          console.log('💬 Final response:', response);
         }
       } else if (patientExists) {
-        console.log('👤 Existing patient conversation detected...');
         // Handle ongoing conversation for existing patients
-        console.log('🔍 Getting patient data for context...');
         const patientData = await getPatientByPhone(fromNumber);
-        console.log('📋 Retrieved patient data for context:', patientData);
         
         if (patientData) {
-          console.log('✅ Patient data retrieved, creating context-aware prompt...');
           // Create context-aware prompt
           const contextPrompt = `Patient: ${patientData.name} (${patientData.age} years, ${patientData.gender})
 Condition: ${patientData.disease}
@@ -152,17 +96,12 @@ Instructions:
 
 Remember: Provide support, not medical advice.`;
 
-          console.log('🤖 Sending context-aware prompt to Gemini...');
           response = await geminiService.chat([{ role: "user", content: contextPrompt }]);
-          console.log('💬 Context-aware response:', response);
         } else {
-          console.log('⚠️ Patient data not found, using fallback chat...');
           // Fallback to regular chat
           response = await geminiService.chat([{ role: "user", content: incomingMessage }]);
-          console.log('💬 Fallback chat response:', response);
         }
       } else {
-        console.log('🆕 New patient, continuing registration flow...');
         // For new patients, continue with registration flow
         const registrationPrompt = `New patient registration. Message: "${incomingMessage}"
 
@@ -172,24 +111,19 @@ Instructions:
 - Do NOT ask for address or other fields not in database
 - Keep response under 2 sentences
 - Be encouraging and conversational
-- For disease/condition: Ask naturally without mentioning spelling
+- For disease/condition: Ask naturally to encourage descriptions like "What symptoms are you experiencing?" or "What brings you here today?"
 - Let the conversation flow naturally
+- Respond in the patient's preferred language if mentioned
 
 Current message: ${incomingMessage}`;
 
-        console.log('🤖 Sending registration prompt to Gemini...');
         response = await geminiService.chat([{ role: "user", content: registrationPrompt }]);
-        console.log('💬 Registration flow response:', response);
       }
     }
 
-    console.log('📤 Creating TwiML response...');
     // Create TwiML response
     const twiml = new twilio.twiml.MessagingResponse();
     twiml.message(response);
-
-    console.log('✅ === INBOUND API SUCCESS ===');
-    console.log('📤 Final TwiML response:', twiml.toString());
 
     // Return XML response
     return new Response(twiml.toString(), {
@@ -198,15 +132,9 @@ Current message: ${incomingMessage}`;
       },
     });
   } catch (error) {
-    console.error('❌ === INBOUND API ERROR ===');
-    console.error('❌ Error handling inbound message:', error);
-    console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-    
     // Return error response
     const twiml = new twilio.twiml.MessagingResponse();
     twiml.message('Sorry, something went wrong. Please try again later.');
-    
-    console.log('📤 Error TwiML response:', twiml.toString());
     
     return new Response(twiml.toString(), {
       headers: {

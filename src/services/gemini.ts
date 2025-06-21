@@ -47,23 +47,16 @@ export class GeminiService {
   }
 
   /**
-   * Check if a patient exists by phone number
-   * @param phoneNumber - The phone number to check
+   * Check if a patient exists in the database
+   * @param phoneNumber - The patient's phone number
    * @returns Promise<boolean> - true if patient exists, false otherwise
    */
   async checkPatientExists(phoneNumber: string): Promise<boolean> {
     try {
-      console.log('🔍 === CHECKING PATIENT EXISTS ===');
-      console.log('📱 Phone number to check:', phoneNumber);
-      
       const result = await checkPhoneExists(phoneNumber);
-      console.log('✅ Patient exists check result:', result);
-      
       return result;
     } catch (error) {
-      console.error('❌ Error checking patient existence:', error);
-      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
-      throw error;
+      return false;
     }
   }
 
@@ -74,8 +67,6 @@ export class GeminiService {
    * @returns Promise<PatientData | null> - Extracted patient data or null if invalid
    */
   async extractPatientData(message: string, phoneNumber: string): Promise<PatientData | null> {
-    console.log('🔍 Starting data extraction for message:', message);
-    
     const prompt = `Extract patient information from this message: "${message}"
 
 The message can be in different formats:
@@ -84,12 +75,17 @@ The message can be in different formats:
 2. Natural language: "NAME I HAVE DISEASE AGE GENDER TALK IN LANGUAGE"
    Example: "PRATHAMESH I HAVE HEADACHE 22YRS OLD MALE TALK IN HINDI"
 3. Partial information: "John 25" or "I have diabetes" or "Male"
+4. Natural disease descriptions: "Pain in my left eye" or "I have a little fever"
 
 Instructions:
 - Extract any available information: name, age, gender, disease, language
 - If a field is not mentioned, set it to null
 - Language is optional and defaults to English if not specified
 - Convert gender to proper format (Male/Female/Other)
+- For disease/condition descriptions:
+  * Remove filler words like "my", "little", "some", "a", "the", "I have", "I'm having", "suffering from"
+  * Convert to clear medical terminology
+  * Examples: "Pain in my left eye" → "pain in left eye", "I have a little fever" → "fever", "my head hurts" → "headache"
 - Return JSON format only
 - If no useful information found, return null
 
@@ -108,44 +104,32 @@ Return format:
 Or return "null" if no useful information found.`;
 
     try {
-      console.log('🤖 Sending prompt to Gemini for extraction...');
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text().trim();
       
-      console.log('🤖 Raw Gemini response:', text);
-      
       // Try to parse JSON response
       if (text.toLowerCase() === 'null' || text === '') {
-        console.log('❌ Gemini returned null or empty response');
         return null;
       }
-      
-      console.log('🔍 Attempting to parse JSON response...');
       
       // Clean the response - remove markdown code blocks if present
       let cleanText = text.trim();
       if (cleanText.startsWith('```json')) {
         cleanText = cleanText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        console.log('🧹 Removed markdown code blocks, cleaned text:', cleanText);
       } else if (cleanText.startsWith('```')) {
         cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-        console.log('🧹 Removed markdown code blocks, cleaned text:', cleanText);
       }
       
       const extractedData = JSON.parse(cleanText);
-      console.log('📋 Parsed extracted data:', extractedData);
       
       // Get current session
       const session = getPatientSession(phoneNumber);
-      console.log('📝 Current session:', session);
       
       // Check for corrupted language value in existing session
       if (session.language && session.language.includes('Please provide the text you want me to correct')) {
-        console.log('🔧 Detected corrupted language value in session, fixing...');
         session.language = 'English';
         updatePatientSession(phoneNumber, { language: 'English' });
-        console.log('✅ Fixed corrupted language value to English');
       }
       
       // Update session with new data (only non-null values)
@@ -166,8 +150,6 @@ Or return "null" if no useful information found.`;
       
       // Correct spelling in the updates if any text fields are present (except language)
       if (updates.name || updates.disease) {
-        console.log('🔍 Correcting spelling in session updates...');
-        
         // Correct individual fields for better efficiency (skip language)
         if (updates.name) {
           updates.name = await this.correctSingleField(updates.name, 'name');
@@ -175,21 +157,16 @@ Or return "null" if no useful information found.`;
         if (updates.disease) {
           updates.disease = await this.correctSingleField(updates.disease, 'disease');
         }
-        
-        console.log('✅ Session updates corrected:', updates);
       }
       
       if (Object.keys(updates).length > 0) {
         updatePatientSession(phoneNumber, updates);
-        console.log('📝 Updated session with:', updates);
       }
       
       // Check if session is now complete
       const updatedSession = getPatientSession(phoneNumber);
-      console.log('📝 Updated session:', updatedSession);
       
       if (isSessionComplete(updatedSession)) {
-        console.log('✅ Session is complete, creating final patient data');
         const finalData = {
           name: updatedSession.name!,
           age: updatedSession.age!,
@@ -199,16 +176,43 @@ Or return "null" if no useful information found.`;
           language: updatedSession.language || 'English' // Default to English if not provided
         };
         
-        console.log('✅ Final patient data:', finalData);
         return finalData;
       } else {
-        console.log('⚠️ Session incomplete, missing fields:', getMissingFields(updatedSession));
         return null;
       }
     } catch (error) {
-      console.error('❌ Error extracting patient data:', error);
-      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
       return null;
+    }
+  }
+
+  /**
+   * Explain a disease or condition in simple terms
+   * @param disease - The disease/condition to explain
+   * @returns Promise<string> - Simple explanation of the condition
+   */
+  async explainDisease(disease: string): Promise<string> {
+    const prompt = `Explain this health condition in simple, patient-friendly terms: "${disease}"
+
+Instructions:
+- Provide a brief, easy-to-understand explanation
+- Use simple language (avoid medical jargon)
+- Keep it under 2 sentences
+- Be reassuring but informative
+- Focus on what the patient should know
+
+Examples:
+- "pain in left eye" → "This could be eye strain, infection, or injury. It's important to get it checked."
+- "fever" → "A fever is your body's way of fighting infection. Rest and fluids help."
+- "headache" → "Headaches can be caused by stress, dehydration, or other factors. Rest often helps."
+
+Return only the explanation, nothing else.`;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      return response.text().trim();
+    } catch (error) {
+      return `I understand you're experiencing ${disease}. Let me help you get the care you need.`;
     }
   }
 
@@ -220,9 +224,6 @@ Or return "null" if no useful information found.`;
    */
   async processAndStorePatientData(message: string, phoneNumber: string): Promise<{success: boolean, message: string, patientData?: PatientData}> {
     try {
-      console.log('🔄 Processing patient data from message:', message);
-      console.log('📱 Phone number:', phoneNumber);
-      
       // Extract patient data from message
       const patientData = await this.extractPatientData(message, phoneNumber);
       
@@ -232,8 +233,6 @@ Or return "null" if no useful information found.`;
         const missingFields = getMissingFields(session);
         
         if (missingFields.length > 0) {
-          console.log('📝 Incomplete session, missing fields:', missingFields);
-          
           // Generate response asking for missing fields
           const missingFieldsResponse = await this.generateMissingFieldsResponse(session, missingFields);
           
@@ -242,7 +241,6 @@ Or return "null" if no useful information found.`;
             message: missingFieldsResponse
           };
         } else {
-          console.log('❌ No useful data extracted and no existing session');
           return {
             success: false,
             message: "I couldn't understand the information. Please provide: Name, Age, Gender, Disease, Language (e.g., John, 25, Male, Diabetes, English)"
@@ -250,12 +248,9 @@ Or return "null" if no useful information found.`;
         }
       }
       
-      console.log('📋 Complete patient data extracted:', patientData);
-      
       // Check if patient already exists
       const exists = await this.checkPatientExists(phoneNumber);
       if (exists) {
-        console.log('⚠️ Patient already exists in database');
         clearPatientSession(phoneNumber); // Clear session
         return {
           success: false,
@@ -263,17 +258,11 @@ Or return "null" if no useful information found.`;
         };
       }
       
-      console.log('🔍 Correcting spelling mistakes...');
-      
       // Correct spelling mistakes in patient data
       const correctedPatientData = await this.correctSpellingMistakes(patientData);
-      console.log('✅ Spelling correction completed');
-      
-      console.log('🎯 Assigning priority using AI...');
       
       // Use AI to assign priority based on corrected patient information
       const priority = await this.assignPriorityWithAI(correctedPatientData);
-      console.log('🎯 AI-assigned priority:', priority);
       
       // Add priority to corrected patient data
       const patientDataWithPriority = {
@@ -281,15 +270,11 @@ Or return "null" if no useful information found.`;
         priority
       };
       
-      console.log('💾 Storing corrected patient data in database...');
-      
       // Insert corrected patient data into database
       const insertedPatient = await insertPatient(patientDataWithPriority);
       
       // Clear session after successful registration
       clearPatientSession(phoneNumber);
-      
-      console.log('🎉 Patient registration completed successfully!');
       
       // Check if any corrections were made
       const hasCorrections = 
@@ -297,16 +282,18 @@ Or return "null" if no useful information found.`;
         patientData.disease !== correctedPatientData.disease ||
         patientData.language !== correctedPatientData.language;
       
+      // Generate disease explanation
+      const diseaseExplanation = await this.explainDisease(correctedPatientData.disease);
+      
       const correctionMessage = hasCorrections ? 
         " (I've corrected some spelling in your information)" : "";
       
       return {
         success: true,
-        message: `Welcome ${correctedPatientData.name}! Your registration is complete${correctionMessage}. How may I help you today?`,
+        message: `Welcome ${correctedPatientData.name}! Your registration is complete${correctionMessage}. ${diseaseExplanation} How may I help you today?`,
         patientData: insertedPatient
       };
     } catch (error) {
-      console.error('❌ Error processing patient data:', error);
       return {
         success: false,
         message: "Sorry, there was an error processing your information. Please try again."
@@ -318,59 +305,51 @@ Or return "null" if no useful information found.`;
    * Generate response asking for missing fields
    * @param session - Current patient session
    * @param missingFields - Array of missing field names
-   * @returns Promise<string> - Response asking for missing fields
+   * @returns Promise<string> - Response asking for missing information
    */
   async generateMissingFieldsResponse(session: any, missingFields: string[]): Promise<string> {
-    console.log('🤖 Generating missing fields response for:', missingFields);
-    
     const prompt = `You are a healthcare assistant for Upchar AI.
 
-Current patient information:
-${session.name ? `- Name: ${session.name}` : ''}
-${session.age ? `- Age: ${session.age}` : ''}
-${session.gender ? `- Gender: ${session.gender}` : ''}
-${session.disease ? `- Disease: ${session.disease}` : ''}
-${session.language ? `- Language: ${session.language}` : ''}
+Current session data:
+- Name: ${session.name || 'Not provided'}
+- Age: ${session.age || 'Not provided'}
+- Gender: ${session.gender || 'Not provided'}
+- Disease/Condition: ${session.disease || 'Not provided'}
+- Language: ${session.language || 'English'}
 
 Missing information: ${missingFields.join(', ')}
 
 Instructions:
-- Acknowledge the information already provided
-- Ask naturally for the missing fields
-- Be friendly and encouraging
+- Ask for the missing information naturally and conversationally
+- For disease/condition: Ask in a way that encourages natural descriptions
+- Examples: "What symptoms are you experiencing?" or "What health issue brings you here today?"
 - Keep response under 2 sentences
-- Make it feel conversational and easy
-- For disease/condition: Ask naturally without mentioning spelling
-- Let the conversation flow naturally
+- Be encouraging and helpful
+- Respond in ${session.language || 'English'}
+- Do NOT ask for address or other fields not in our database
+- Make it feel like a natural conversation, not a form
 
-Examples:
-- "Thanks! I have your name and age. Could you please tell me your gender and what condition you're experiencing?"
-- "Great! I have your name. What's your age and what health concern brings you here today?"
-- "Perfect! I have your name and age. Could you share your gender and what symptoms you're having?"`;
+Remember: Help the patient feel comfortable sharing their health information.`;
 
     try {
-      console.log('🤖 Sending prompt to Gemini for missing fields response...');
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
       
-      console.log('🤖 Raw Gemini response for missing fields:', text);
       return text;
     } catch (error) {
-      console.error('❌ Error generating missing fields response:', error);
-      
       // Fallback response
       const fieldNames = missingFields.map(field => {
         switch (field) {
-          case 'name': return 'full name';
-          case 'age': return 'age';
-          case 'gender': return 'gender (Male/Female/Other)';
-          case 'disease': return 'condition or symptoms';
+          case 'name': return 'your full name';
+          case 'age': return 'your age';
+          case 'gender': return 'your gender (Male/Female/Other)';
+          case 'disease': return 'what symptoms or health issue you\'re experiencing';
           default: return field;
         }
       });
       
-      return `Thanks! I still need your ${fieldNames.join(', ')}. Please provide the missing information.`;
+      return `I need a few more details: ${fieldNames.join(', ')}. Please share this information so I can help you better.`;
     }
   }
 
@@ -380,9 +359,6 @@ Examples:
    * @returns Promise<string> - AI response for existing patient
    */
   async generateExistingPatientResponse(patientData: PatientData): Promise<string> {
-    console.log('🤖 === GENERATING EXISTING PATIENT RESPONSE ===');
-    console.log('📋 Patient data for response:', patientData);
-    
     const prompt = `You are a healthcare assistant for Upchar AI. 
 
 Patient: ${patientData.name} (${patientData.age} years, ${patientData.gender})
@@ -398,23 +374,13 @@ Instructions:
 Remember: Provide support, not medical advice.`;
 
     try {
-      console.log('🤖 Sending prompt to Gemini for existing patient response...');
-      console.log('📝 Prompt:', prompt);
-      
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
       
-      console.log('🤖 Raw Gemini response for existing patient:', text);
-      console.log('✅ Existing patient response generated successfully');
-      
       return text;
     } catch (error) {
-      console.error('❌ Error generating existing patient response:', error);
-      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
-      
       const fallbackResponse = `Hello ${patientData.name}! How may I help you today?`;
-      console.log('🔄 Using fallback response:', fallbackResponse);
       
       return fallbackResponse;
     }
@@ -426,9 +392,6 @@ Remember: Provide support, not medical advice.`;
    * @returns Promise<string> - AI response for new patient registration
    */
   async generateNewPatientResponse(phoneNumber: string): Promise<string> {
-    console.log('🤖 === GENERATING NEW PATIENT RESPONSE ===');
-    console.log('📱 Phone number for new patient:', phoneNumber);
-    
     const prompt = `You are a healthcare assistant for Upchar AI. 
 
 New patient with phone ${phoneNumber} wants to register.
@@ -444,23 +407,13 @@ Instructions:
 Example: "Welcome to Upchar AI! To provide personalized care, I need your full name."`;
 
     try {
-      console.log('🤖 Sending prompt to Gemini for new patient response...');
-      console.log('📝 Prompt:', prompt);
-      
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
       
-      console.log('🤖 Raw Gemini response for new patient:', text);
-      console.log('✅ New patient response generated successfully');
-      
       return text;
     } catch (error) {
-      console.error('❌ Error generating new patient response:', error);
-      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
-      
       const fallbackResponse = `Welcome to Upchar AI! To provide personalized care, I need your full name.`;
-      console.log('🔄 Using fallback response:', fallbackResponse);
       
       return fallbackResponse;
     }
@@ -489,35 +442,19 @@ Example: "Welcome to Upchar AI! To provide personalized care, I need your full n
 
   async chat(messages: ChatMessage[], calendarEvents?: CalendarEvent[]): Promise<string> {
     try {
-      console.log('🤖 === GEMINI CHAT START ===');
-      console.log('💬 Messages to process:', messages);
-      console.log('📅 Calendar events:', calendarEvents);
-      
       let prompt = this.buildPrompt(messages, calendarEvents);
-      console.log('📝 Built prompt:', prompt);
       
-      console.log('🤖 Sending prompt to Gemini...');
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
       
-      console.log('🤖 Raw Gemini chat response:', text);
-      console.log('✅ === GEMINI CHAT SUCCESS ===');
-      
       return text;
     } catch (error) {
-      console.error('❌ === GEMINI CHAT ERROR ===');
-      console.error('❌ Error in Gemini chat:', error);
-      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
       throw new Error('Failed to get response from Gemini');
     }
   }
 
   private buildPrompt(messages: ChatMessage[], calendarEvents?: CalendarEvent[]): string {
-    console.log('🔨 === BUILDING PROMPT ===');
-    console.log('💬 Messages:', messages);
-    console.log('📅 Calendar events:', calendarEvents);
-    
     let prompt = `You are an AI assistant that can help with calendar management and general tasks. 
     
 You have access to Google Calendar events and can help users:
@@ -533,7 +470,6 @@ Current conversation context:
     // Add conversation history
     messages.forEach((message, index) => {
       prompt += `${message.role === 'user' ? 'User' : 'Assistant'}: ${message.content}\n`;
-      console.log(`📝 Added message ${index + 1}:`, message.role, message.content);
     });
 
     // Add calendar context if available
@@ -541,13 +477,11 @@ Current conversation context:
       prompt += `\nCurrent calendar events:\n`;
       calendarEvents.forEach((event, index) => {
         prompt += `- ${event.summary} (${event.start.dateTime} to ${event.end.dateTime})\n`;
-        console.log(`📅 Added calendar event ${index + 1}:`, event.summary);
       });
     }
 
     prompt += `\nPlease respond as the AI assistant. If the user asks about calendar operations, provide helpful information and suggest appropriate actions.`;
 
-    console.log('✅ Final prompt built successfully');
     return prompt;
   }
 
@@ -568,7 +502,6 @@ Please provide:
       const response = await result.response;
       return response.text();
     } catch (error) {
-      console.error('Error generating calendar insights:', error);
       return 'Unable to generate calendar insights at this time.';
     }
   }
@@ -579,9 +512,6 @@ Please provide:
    * @returns Promise<'High' | 'Medium' | 'Low'> - AI-assigned priority
    */
   async assignPriorityWithAI(patientData: PatientData): Promise<'High' | 'Medium' | 'Low'> {
-    console.log('🤖 === ASSIGNING PRIORITY WITH AI ===');
-    console.log('📋 Patient data for priority assignment:', patientData);
-    
     const prompt = `You are a healthcare AI assistant. Analyze this patient's information and assign a priority level.
 
 Patient Information:
@@ -612,37 +542,23 @@ Instructions:
 Return format: "High" or "Medium" or "Low"`;
 
     try {
-      console.log('🤖 Sending prompt to Gemini for priority assignment...');
-      console.log('📝 Prompt:', prompt);
-      
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text().trim();
       
-      console.log('🤖 Raw Gemini priority response:', text);
-      
       // Clean and validate the response
       const cleanPriority = text.replace(/[^a-zA-Z]/g, '').toLowerCase();
-      console.log('🧹 Cleaned priority:', cleanPriority);
       
       if (cleanPriority === 'high') {
-        console.log('✅ AI assigned HIGH priority');
         return 'High';
       } else if (cleanPriority === 'medium') {
-        console.log('✅ AI assigned MEDIUM priority');
         return 'Medium';
       } else if (cleanPriority === 'low') {
-        console.log('✅ AI assigned LOW priority');
         return 'Low';
       } else {
-        console.log('⚠️ Invalid priority response, defaulting to Medium:', cleanPriority);
         return 'Medium';
       }
     } catch (error) {
-      console.error('❌ Error assigning priority with AI:', error);
-      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
-      
-      console.log('🔄 Using fallback priority: Medium');
       return 'Medium';
     }
   }
@@ -653,12 +569,8 @@ Return format: "High" or "Medium" or "Low"`;
    * @returns Promise<PatientData> - Corrected patient data
    */
   async correctSpellingMistakes(patientData: PatientData): Promise<PatientData> {
-    console.log('🔍 === CORRECTING SPELLING MISTAKES ===');
-    console.log('📋 Original patient data:', patientData);
-    
     // Preserve original language without correction (SarvamAI will handle translation)
     const originalLanguage = patientData.language || 'English';
-    console.log('🌐 Preserving original language for SarvamAI:', originalLanguage);
     
     const prompt = `You are a healthcare AI assistant. Correct any spelling mistakes in this patient information while preserving the original meaning.
 
@@ -694,27 +606,11 @@ Return format:
 }`;
 
     try {
-      console.log('🤖 Sending prompt to Gemini for spelling correction...');
-      console.log('📝 Prompt:', prompt);
-      
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const text = response.text().trim();
       
-      console.log('🤖 Raw Gemini spelling correction response:', text);
-      
-      // Clean the response - remove markdown code blocks if present
-      let cleanText = text.trim();
-      if (cleanText.startsWith('```json')) {
-        cleanText = cleanText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        console.log('🧹 Removed markdown code blocks, cleaned text:', cleanText);
-      } else if (cleanText.startsWith('```')) {
-        cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-        console.log('🧹 Removed markdown code blocks, cleaned text:', cleanText);
-      }
-      
-      const correctedData = JSON.parse(cleanText);
-      console.log('📋 Parsed corrected data:', correctedData);
+      const correctedData = JSON.parse(text);
       
       // Create corrected patient data (preserve original language)
       const correctedPatientData: PatientData = {
@@ -726,67 +622,69 @@ Return format:
         language: originalLanguage // Preserve original language for SarvamAI
       };
       
-      console.log('✅ Corrected patient data:', correctedPatientData);
       return correctedPatientData;
     } catch (error) {
-      console.error('❌ Error correcting spelling mistakes:', error);
-      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
-      
-      console.log('🔄 Using original data due to correction error');
       return patientData;
     }
   }
 
   /**
-   * Correct spelling in a single text field
+   * Correct spelling in a single field
    * @param text - Text to correct
    * @param fieldType - Type of field (name, disease, language)
    * @returns Promise<string> - Corrected text
    */
   async correctSingleField(text: string, fieldType: 'name' | 'disease' | 'language'): Promise<string> {
-    console.log(`🔍 Correcting spelling in ${fieldType}:`, text);
-    
     // Handle empty or null text
     if (!text || text.trim() === '') {
-      console.log(`⚠️ Empty ${fieldType} field, returning as is`);
       return text;
     }
     
     // Skip language field processing (SarvamAI will handle translation)
     if (fieldType === 'language') {
-      console.log('🌐 Skipping language correction - SarvamAI will handle translation');
       return text; // Return original text without any processing
     }
     
-    const prompt = `You are a healthcare AI assistant. Correct any spelling mistakes in this ${fieldType} while preserving the original meaning.
-
-${fieldType.charAt(0).toUpperCase() + fieldType.slice(1)}: "${text}"
+    let prompt: string;
+    
+    if (fieldType === 'name') {
+      prompt = `Correct any spelling mistakes in this name: "${text}"
 
 Instructions:
-- Correct spelling mistakes
-- Preserve the original meaning and intent
-- For names: keep as close to original as possible, only fix obvious mistakes
-- For diseases: correct medical terms and common words
-- Return only the corrected text, no JSON or explanations
+- Correct spelling errors
+- Keep the original name structure
+- Return only the corrected name
+- If the name is already correct, return it as is
 
-Examples:
-- Name: "Jhon" → "John"
-- Disease: "hedache" → "headache"
+Return only the corrected name, nothing else.`;
+    } else if (fieldType === 'disease') {
+      prompt = `Clean and correct this disease/condition description: "${text}"
 
-Return only the corrected text.`;
+Instructions:
+- Remove filler words like "my", "little", "some", "a", "the", "I have", "I'm having", "suffering from", "feeling"
+- Convert to clear medical terminology
+- Correct any spelling mistakes
+- Keep the essential medical information
+- Examples:
+  * "Pain in my left eye" → "pain in left eye"
+  * "I have a little fever" → "fever"
+  * "my head hurts" → "headache"
+  * "suffering from diabetes" → "diabetes"
+  * "feeling chest pain" → "chest pain"
+  * "little cough" → "cough"
+
+Return only the cleaned and corrected disease description, nothing else.`;
+    } else {
+      return text; // For any other field type, return as is
+    }
 
     try {
-      console.log('🤖 Sending prompt to Gemini for single field correction...');
-      
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const correctedText = response.text().trim();
       
-      console.log(`✅ Corrected ${fieldType}:`, correctedText);
       return correctedText;
     } catch (error) {
-      console.error(`❌ Error correcting ${fieldType}:`, error);
-      console.log('🔄 Using original text due to correction error');
       return text;
     }
   }
