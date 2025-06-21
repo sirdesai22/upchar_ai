@@ -140,6 +140,14 @@ Or return "null" if no useful information found.`;
       const session = getPatientSession(phoneNumber);
       console.log('📝 Current session:', session);
       
+      // Check for corrupted language value in existing session
+      if (session.language && session.language.includes('Please provide the text you want me to correct')) {
+        console.log('🔧 Detected corrupted language value in session, fixing...');
+        session.language = 'English';
+        updatePatientSession(phoneNumber, { language: 'English' });
+        console.log('✅ Fixed corrupted language value to English');
+      }
+      
       // Update session with new data (only non-null values)
       const updates: any = {};
       if (extractedData.name) updates.name = extractedData.name;
@@ -153,21 +161,19 @@ Or return "null" if no useful information found.`;
         updates.gender = extractedData.gender;
       }
       if (extractedData.disease) updates.disease = extractedData.disease;
-      if (extractedData.language) updates.language = extractedData.language;
+      // Always set language - use extracted value or default to English
+      updates.language = extractedData.language || 'English';
       
-      // Correct spelling in the updates if any text fields are present
-      if (updates.name || updates.disease || updates.language) {
+      // Correct spelling in the updates if any text fields are present (except language)
+      if (updates.name || updates.disease) {
         console.log('🔍 Correcting spelling in session updates...');
         
-        // Correct individual fields for better efficiency
+        // Correct individual fields for better efficiency (skip language)
         if (updates.name) {
           updates.name = await this.correctSingleField(updates.name, 'name');
         }
         if (updates.disease) {
           updates.disease = await this.correctSingleField(updates.disease, 'disease');
-        }
-        if (updates.language) {
-          updates.language = await this.correctSingleField(updates.language, 'language');
         }
         
         console.log('✅ Session updates corrected:', updates);
@@ -330,12 +336,17 @@ Missing information: ${missingFields.join(', ')}
 
 Instructions:
 - Acknowledge the information already provided
-- Ask only for the missing fields
+- Ask naturally for the missing fields
 - Be friendly and encouraging
 - Keep response under 2 sentences
-- Make it feel easy and quick
+- Make it feel conversational and easy
+- For disease/condition: Ask naturally without mentioning spelling
+- Let the conversation flow naturally
 
-Example: "Thanks! I have your name and age. Could you please tell me your gender and what condition you're experiencing?"`;
+Examples:
+- "Thanks! I have your name and age. Could you please tell me your gender and what condition you're experiencing?"
+- "Great! I have your name. What's your age and what health concern brings you here today?"
+- "Perfect! I have your name and age. Could you share your gender and what symptoms you're having?"`;
 
     try {
       console.log('🤖 Sending prompt to Gemini for missing fields response...');
@@ -645,6 +656,10 @@ Return format: "High" or "Medium" or "Low"`;
     console.log('🔍 === CORRECTING SPELLING MISTAKES ===');
     console.log('📋 Original patient data:', patientData);
     
+    // Preserve original language without correction (SarvamAI will handle translation)
+    const originalLanguage = patientData.language || 'English';
+    console.log('🌐 Preserving original language for SarvamAI:', originalLanguage);
+    
     const prompt = `You are a healthcare AI assistant. Correct any spelling mistakes in this patient information while preserving the original meaning.
 
 Patient Information:
@@ -652,13 +667,14 @@ Patient Information:
 - Age: ${patientData.age} years
 - Gender: ${patientData.gender}
 - Disease/Condition: ${patientData.disease}
-- Language: ${patientData.language || 'English'}
+- Language: ${originalLanguage}
 
 Instructions:
-- Correct spelling mistakes in names, diseases, and other text fields
+- Correct spelling mistakes in names and diseases only
 - Preserve the original meaning and intent
 - Keep proper nouns (names) as close to original as possible
 - Correct medical terms and common words
+- Do NOT correct or translate the language field
 - Return JSON format with corrected data
 - If no corrections needed, return the original data
 
@@ -674,7 +690,7 @@ Return format:
   "age": ${patientData.age},
   "gender": "${patientData.gender}",
   "disease": "corrected disease",
-  "language": "${patientData.language || 'English'}"
+  "language": "${originalLanguage}"
 }`;
 
     try {
@@ -700,14 +716,14 @@ Return format:
       const correctedData = JSON.parse(cleanText);
       console.log('📋 Parsed corrected data:', correctedData);
       
-      // Create corrected patient data
+      // Create corrected patient data (preserve original language)
       const correctedPatientData: PatientData = {
         name: correctedData.name,
         age: correctedData.age,
         gender: correctedData.gender,
         disease: correctedData.disease,
         phone_number: patientData.phone_number,
-        language: correctedData.language
+        language: originalLanguage // Preserve original language for SarvamAI
       };
       
       console.log('✅ Corrected patient data:', correctedPatientData);
@@ -730,6 +746,18 @@ Return format:
   async correctSingleField(text: string, fieldType: 'name' | 'disease' | 'language'): Promise<string> {
     console.log(`🔍 Correcting spelling in ${fieldType}:`, text);
     
+    // Handle empty or null text
+    if (!text || text.trim() === '') {
+      console.log(`⚠️ Empty ${fieldType} field, returning as is`);
+      return text;
+    }
+    
+    // Skip language field processing (SarvamAI will handle translation)
+    if (fieldType === 'language') {
+      console.log('🌐 Skipping language correction - SarvamAI will handle translation');
+      return text; // Return original text without any processing
+    }
+    
     const prompt = `You are a healthcare AI assistant. Correct any spelling mistakes in this ${fieldType} while preserving the original meaning.
 
 ${fieldType.charAt(0).toUpperCase() + fieldType.slice(1)}: "${text}"
@@ -739,13 +767,11 @@ Instructions:
 - Preserve the original meaning and intent
 - For names: keep as close to original as possible, only fix obvious mistakes
 - For diseases: correct medical terms and common words
-- For languages: correct language names
 - Return only the corrected text, no JSON or explanations
 
 Examples:
 - Name: "Jhon" → "John"
 - Disease: "hedache" → "headache"
-- Language: "hinde" → "hindi"
 
 Return only the corrected text.`;
 

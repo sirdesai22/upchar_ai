@@ -3,21 +3,17 @@ import { GeminiService } from '@/services/gemini';
 import { getPatientByPhone, PatientData } from '@/services/supabase';
 import { testSupabaseConnection } from '@/lib/supabase-client';
 
-let incomingMessage = "";
-let fromNumber = "";
-
 export async function POST(request: Request) {
   try {
     console.log('🚀 === INBOUND API START ===');
     
     // Parse the incoming form data from Twilio
     const formData = await request.formData();
-    incomingMessage = formData.get('Body') as string;
-    fromNumber = formData.get('From') as string;
+    const incomingMessage = formData.get('Body') as string;
+    const fromNumber = formData.get('From') as string;
     
     console.log('📨 Raw incoming message:', incomingMessage);
     console.log('📱 Phone number:', fromNumber);
-    console.log('📊 Message length:', incomingMessage?.length || 0);
 
     const geminiService = new GeminiService();
     console.log('🤖 Gemini service initialized');
@@ -42,23 +38,8 @@ export async function POST(request: Request) {
     
     console.log('🔍 Message analysis:', { 
       hasCommas, 
-      commaCount: (incomingMessage.match(/,/g) || []).length,
       hasPatientInfo,
-      isGreeting,
-      message: incomingMessage 
-    });
-    console.log('🔍 Patient info detection:', {
-      hasAge: /\d+\s*(?:yrs?|years?|age)/i.test(incomingMessage),
-      hasGender: /\b(?:male|female|m|f)\b/i.test(incomingMessage),
-      hasDisease: /\b(?:headache|fever|pain|diabetes|heart|asthma|cancer|stroke|hypertension|diabetes|asthma|pneumonia|fever|chest pain|breathing difficulty|severe pain|bleeding|unconscious|seizure|allergic reaction|heart_problem|heart disease|cardiac|headache|cold|cough|fever|stomach ache|back pain|joint pain|skin rash|eye problem|ear pain|dental issue)\b/i.test(incomingMessage),
-      hasName: /^[A-Za-z\s]{2,20}$/.test(incomingMessage.trim()),
-      hasLanguage: /\b(?:english|hindi|marathi|gujarati|tamil|telugu|kannada|malayalam|punjabi|bengali|urdu)\b/i.test(incomingMessage)
-    });
-    console.log('🔍 Greeting keywords found:', {
-      hello: incomingMessage.toLowerCase().includes('hello'),
-      hi: incomingMessage.toLowerCase().includes('hi'),
-      start: incomingMessage.toLowerCase().includes('start'),
-      help: incomingMessage.toLowerCase().includes('help')
+      isGreeting
     });
     
     if (isGreeting) {
@@ -102,10 +83,6 @@ export async function POST(request: Request) {
     } else {
       console.log('💬 Processing non-greeting message...');
       
-      // Check if this message contains complete patient data (comma-separated format)
-      const commaCount = (incomingMessage.match(/,/g) || []).length;
-      console.log('🔍 Comma analysis:', { commaCount, hasCommas, message: incomingMessage });
-      
       console.log('🔍 Checking if patient exists in database...');
       const patientExists = await geminiService.checkPatientExists(fromNumber);
       console.log('👤 Patient exists check result:', patientExists);
@@ -115,14 +92,10 @@ export async function POST(request: Request) {
       const existingSession = getPatientSession(fromNumber);
       const hasExistingSession = existingSession.name || existingSession.age || existingSession.gender || existingSession.disease || existingSession.language;
       
-      console.log('📝 Existing session check:', { hasExistingSession, session: existingSession });
+      console.log('📝 Existing session check:', { hasExistingSession });
       
       if (!patientExists && (hasPatientInfo || hasExistingSession)) {
         console.log('📝 Detected potential patient registration data');
-        console.log('📨 Message:', incomingMessage);
-        console.log('📱 From:', fromNumber);
-        console.log('🔍 Comma count:', commaCount);
-        console.log('👤 Patient exists check:', patientExists);
         
         // Test Supabase connection first
         console.log('🔗 Testing Supabase connection...');
@@ -194,11 +167,13 @@ Remember: Provide support, not medical advice.`;
         const registrationPrompt = `New patient registration. Message: "${incomingMessage}"
 
 Instructions:
-- Help complete registration
+- Help complete registration naturally
 - Ask for missing info: name, age, gender, disease, language
 - Do NOT ask for address or other fields not in database
 - Keep response under 2 sentences
-- Be encouraging and clear
+- Be encouraging and conversational
+- For disease/condition: Ask naturally without mentioning spelling
+- Let the conversation flow naturally
 
 Current message: ${incomingMessage}`;
 
@@ -239,20 +214,4 @@ Current message: ${incomingMessage}`;
       },
     });
   }
-}
-
-export async function GET() {
-  // Handle GET requests (for testing)
-  const twiml = new twilio.twiml.MessagingResponse();
-  const message = "Hello there!" + incomingMessage + " - " + fromNumber;
-  twiml.message(message);
-
-  console.log('Incoming message:', incomingMessage, 'from:', fromNumber);
-  console.log('Received message:', incomingMessage);
-  
-  return new Response(twiml.toString(), {
-    headers: {
-      'Content-Type': 'text/xml',
-    },
-  });
 } 
