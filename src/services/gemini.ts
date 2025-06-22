@@ -73,25 +73,109 @@ export class GeminiService {
       return "You are not registered. Please register first.";
     }
 
-    const prompt = `Book an appointment for the patient with the following message: ${message} and patient data: ${JSON.stringify(patientData)} consider the patient priority and disease in the appointment booking
-      output the response in the following json format:
-      {
-        method: "calendar.events.insert", // calendar.events.list, calendar.events.insert, calendar.events.update, calendar.events.delete
-        params: {
-          summary: "", // Priority of the appointment
-          description: "", // purpose of visit/appointment description
-          start: {
-            dateTime: "", // example: 2025-06-22T09:00:00+05:30
-            timeZone: "Asia/Kolkata"
-          },
-          end: {
-            dateTime: "",
-            timeZone: "Asia/Kolkata"
-          }
+    // Fetch all doctors from the database
+    const { data: doctors, error: doctorsError } = await supabase
+      .from('doctors')
+      .select('*')
+      .eq('status', 'active');
+
+    if (doctorsError) {
+      console.error('Error fetching doctors:', doctorsError);
+      return "Sorry, there was an error fetching available doctors. Please try again.";
+    }
+
+    if (!doctors || doctors.length === 0) {
+      return "Sorry, no doctors are currently available. Please try again later.";
+    }
+
+    console.log("Available doctors:", doctors);
+
+    // Use AI to assign the most appropriate doctor based on patient's problem
+    const doctorAssignmentPrompt = `Assign the most appropriate doctor to this patient based on their medical condition.
+
+Patient Information:
+- Name: ${patientData.name}
+- Age: ${patientData.age}
+- Gender: ${patientData.gender}
+- Disease/Problem: ${patientData.disease}
+- Priority: ${patientData.priority}
+
+Available Doctors:
+${JSON.stringify(doctors)}
+
+Instructions:
+- Analyze the patient's disease/condition
+- Match it with the most appropriate doctor's specialization
+- Consider the urgency and priority of the case
+- Return the doctor's ID and name
+- If no perfect match, choose the closest specialization
+
+Return JSON format:
+{
+  "assignedDoctorId": "doctor_id", //doctor id from the doctors table
+  "assignedDoctorName": "Dr. Name", //doctor name from the doctors table
+  "assignedDoctorSpecialization": "specialization", //doctor specialization from the doctors table
+  "reasoning": "brief explanation of why this doctor was chosen" //brief explanation of why this doctor was chosen
+}`;
+
+    const doctorAssignmentResult = await this.model.generateContent(doctorAssignmentPrompt);
+    const doctorAssignmentText = doctorAssignmentResult.response.text().trim();
+    console.log("Doctor assignment text:", doctorAssignmentText);
+    // Parse the doctor assignment
+    let doctorAssignment;
+    try {
+      const cleanText = doctorAssignmentText.replace(/```json\s*/, '').replace(/\s*```$/, '');
+      doctorAssignment = JSON.parse(cleanText);
+    } catch (error) {
+      console.error('Failed to parse doctor assignment:', error);
+      // Fallback to first available doctor
+      doctorAssignment = {
+        assignedDoctorId: doctors[0].id,
+        assignedDoctorName: `Dr. ${doctors[0].name}`,
+        assignedDoctorSpecialization: doctors[0].specialization,
+        reasoning: "Assigned based on availability"
+      };
+    }
+
+    console.log('Doctor assignment:', doctorAssignment);
+
+    // Find the assigned doctor in the database
+    const assignedDoctor = doctors.find(d => d.id === doctorAssignment.assignedDoctorId);
+    if (!assignedDoctor) {
+      return "Sorry, the assigned doctor is no longer available. Please try again.";
+    }
+
+    // Store assigned doctor information in patient session
+    updatePatientSession(phoneNumber, {
+      assignedDoctorId: doctorAssignment.assignedDoctorId,
+      assignedDoctorName: doctorAssignment.assignedDoctorName,
+      assignedDoctorSpecialization: doctorAssignment.assignedDoctorSpecialization,
+      assignmentReasoning: doctorAssignment.reasoning
+    });
+
+    const prompt = `Book an appointment for the patient with the following message: ${message} and patient data: ${JSON.stringify(patientData)} 
+    The patient has been assigned to ${doctorAssignment.assignedDoctorName} (${doctorAssignment.assignedDoctorSpecialization}).
+    
+    Consider the patient priority and disease in the appointment booking.
+    book the appointment in the google calendar, do not ask for confirmation, just book the appointment - make use of default values whereever required
+    
+    output the response in the following json format:
+    {
+      method: "calendar.events.insert",
+      params: {
+        summary: "Appointment with ${doctorAssignment.assignedDoctorName} - ${patientData.name}",
+        description: "Patient: ${patientData.name} (${patientData.age} years, ${patientData.gender})\nDisease: ${patientData.disease}\nPriority: ${patientData.priority}\nAssigned Doctor: ${doctorAssignment.assignedDoctorName}\nSpecialization: ${doctorAssignment.assignedDoctorSpecialization}\nReasoning: ${doctorAssignment.reasoning}",
+        start: {
+          dateTime: "", // example: 2025-06-22T09:00:00+05:30
+          timeZone: "Asia/Kolkata"
+        },
+        end: {
+          dateTime: "",
+          timeZone: "Asia/Kolkata"
         }
       }
-        book the appointment in the google calendar, do not ask for confirmation, just book the appointment - make use of default values whereever required
-      `;
+    }`;
+    
     const result = await this.model.generateContent(prompt);
     //convert the result to json
     //remove the ```json and ``` from the result
@@ -100,7 +184,7 @@ export class GeminiService {
     console.log("Appointment booking prompt", text);
 
     // Get access token using utility function
-    const { getValidAccessToken } = await import('@/lib/auth-utils');
+    // const { getValidAccessToken } = await import('@/lib/auth-utils');
     // const token = await getValidAccessToken();
 
     const { data:tokenData, error } = await supabase.from('token').select('token');
@@ -114,7 +198,7 @@ export class GeminiService {
       console.log("No valid token found");
       return "Please sign in with Google to book appointments.";
     }
-    
+
     //book the appointment
     //call the google calendar api to book the appointment
     const response = await fetch(`http://localhost:3000/api/calendar/events`, {
@@ -135,7 +219,7 @@ export class GeminiService {
 
     console.log(data);
 
-    return "Appointment booked successfully";
+    return `Appointment booked successfully! You have been assigned to ${doctorAssignment.assignedDoctorName} (${doctorAssignment.assignedDoctorSpecialization}). ${doctorAssignment.reasoning}`;
   } catch (error) {
     console.error(error);
     return "Sorry, there was an error booking the appointment. Please try again. Error: " + error;

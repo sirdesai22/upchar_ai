@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase-client';
 import { useRouter } from 'next/navigation';
 import GoogleLogin from './GoogleLogin';
+import { getPatientSession } from '@/lib/patient-sessions';
 
 interface Doctor {
   id: string;
@@ -25,6 +26,10 @@ interface Patient {
   language: string;
   priority: 'High' | 'Medium' | 'Low';
   created_at: string;
+  assignedDoctorId?: string | null;
+  assignedDoctorName?: string | null;
+  assignedDoctorSpecialization?: string | null;
+  assignmentReasoning?: string | null;
 }
 
 export default function Dashboard() {
@@ -62,7 +67,18 @@ export default function Dashboard() {
       if (patientsError) {
         console.error('Error fetching patients:', patientsError);
       } else {
-        setPatients(patientsData || []);
+        // Merge assigned doctor information from patient sessions
+        const patientsWithDoctors = (patientsData || []).map(patient => {
+          const patientSession = getPatientSession(patient.phone_number);
+          return {
+            ...patient,
+            assignedDoctorId: patientSession.assignedDoctorId || null,
+            assignedDoctorName: patientSession.assignedDoctorName || null,
+            assignedDoctorSpecialization: patientSession.assignedDoctorSpecialization || null,
+            assignmentReasoning: patientSession.assignmentReasoning || null
+          };
+        });
+        setPatients(patientsWithDoctors);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -323,6 +339,15 @@ export default function Dashboard() {
                               <span className="text-sm text-gray-500">Language:</span>
                               <span className="text-sm text-gray-900">{patient.language}</span>
                             </div>
+                            {patient.assignedDoctorName && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm text-gray-500">Assigned Doctor:</span>
+                                <div className="text-right">
+                                  <span className="text-sm font-medium text-blue-600">{patient.assignedDoctorName}</span>
+                                  <p className="text-xs text-gray-500">{patient.assignedDoctorSpecialization}</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="ml-4 flex flex-col items-end space-y-2 absolute right-0 top-0">

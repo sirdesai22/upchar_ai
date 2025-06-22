@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase-client';
+import { getPatientSession } from '@/lib/patient-sessions';
 
 export interface PatientData {
   id: string;
@@ -10,6 +11,10 @@ export interface PatientData {
   phone_number: string;
   language?: string;
   created_at: string;
+  assignedDoctorId?: string | null;
+  assignedDoctorName?: string | null;
+  assignedDoctorSpecialization?: string | null;
+  assignmentReasoning?: string | null;
 }
 
 /**
@@ -72,7 +77,19 @@ export async function getPatientByPhone(phoneNumber: string): Promise<PatientDat
       throw new Error(`Database query failed: ${error.message}`);
     }
 
-    return data;
+    // Get assigned doctor information from patient session
+    const patientSession = getPatientSession(phoneNumber);
+    
+    // Merge database data with session data
+    const patientData: PatientData = {
+      ...data,
+      assignedDoctorId: patientSession.assignedDoctorId || null,
+      assignedDoctorName: patientSession.assignedDoctorName || null,
+      assignedDoctorSpecialization: patientSession.assignedDoctorSpecialization || null,
+      assignmentReasoning: patientSession.assignmentReasoning || null
+    };
+
+    return patientData;
   } catch (error) {
     throw error;
   }

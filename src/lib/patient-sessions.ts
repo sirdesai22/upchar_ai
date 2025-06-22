@@ -76,5 +76,9 @@ export interface PatientSession {
   gender: 'Male' | 'Female' | 'Other' | null;
   disease: string | null;
   language: string | null;
+  assignedDoctorId?: string | null;
+  assignedDoctorName?: string | null;
+  assignedDoctorSpecialization?: string | null;
+  assignmentReasoning?: string | null;
   lastUpdated?: number;
 } 
