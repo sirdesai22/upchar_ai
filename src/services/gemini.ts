@@ -3,6 +3,7 @@ import { config } from '@/config/env';
 import { checkPhoneExists, getPatientByPhone, insertPatient, PatientData } from './supabase';
 import { getPatientSession, updatePatientSession, clearPatientSession, isSessionComplete, getMissingFields } from '@/lib/patient-sessions';
 import { sarvamService } from './sarvam';
+import { supabase } from '@/lib/supabase-client';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -64,76 +65,100 @@ export class GeminiService {
   }
 
  async bookAppointment(message: string, phoneNumber: string): Promise<string> {
-  try{
-  const patientData = await getPatientByPhone(phoneNumber);
-  console.log(patientData);
+  try {
+    const patientData = await getPatientByPhone(phoneNumber);
+    console.log(patientData);
 
-  if(!patientData) {
-    return "You are not registered. Please register first.";
-  }
+    if (!patientData) {
+      return "You are not registered. Please register first.";
+    }
 
-  const prompt = `Book an appointment for the patient with the following message: ${message} and patient data: ${JSON.stringify(patientData)} consider the patient priority and disease in the appointment booking
-    output the response in the following json format:
-    {
-      method: "calendar.events.insert", // calendar.events.list, calendar.events.insert, calendar.events.update, calendar.events.delete
-      params: {
-        summary: "", // Priority of the appointment
-        description: "", // purpose of visit/appointment description
-        start: {
-          dateTime: "", // example: 2025-06-22T09:00:00+05:30
-          timeZone: "Asia/Kolkata"
-        },
-        end: {
-          dateTime: "",
-          timeZone: "Asia/Kolkata"
+    const prompt = `Book an appointment for the patient with the following message: ${message} and patient data: ${JSON.stringify(patientData)} consider the patient priority and disease in the appointment booking
+      output the response in the following json format:
+      {
+        method: "calendar.events.insert", // calendar.events.list, calendar.events.insert, calendar.events.update, calendar.events.delete
+        params: {
+          summary: "", // Priority of the appointment
+          description: "", // purpose of visit/appointment description
+          start: {
+            dateTime: "", // example: 2025-06-22T09:00:00+05:30
+            timeZone: "Asia/Kolkata"
+          },
+          end: {
+            dateTime: "",
+            timeZone: "Asia/Kolkata"
+          }
         }
       }
-    }
-    }
-  `;
-  const result = await this.model.generateContent(prompt);
+        book the appointment in the google calendar, do not ask for confirmation, just book the appointment - make use of default values whereever required
+      `;
+    const result = await this.model.generateContent(prompt);
     //convert the result to json
     //remove the ```json and ``` from the result
     const text = JSON.parse(result.response.text().trim().replace(/```json\s*/, '').replace(/\s*```$/, ''));
 
-  console.log(text);
+    console.log("Appointment booking prompt", text);
 
+    // Get access token using utility function
+    const { getValidAccessToken } = await import('@/lib/auth-utils');
+    // const token = await getValidAccessToken();
 
-  //book the appointment
-  //call the google calendar api to book the appointment
-  const response = await fetch(`http://localhost:3000/api/calendar/events`, {
-    method: "POST",
-    body: JSON.stringify(text),
-    headers: {
-      "Content-Type": "application/json"
+    const { data:tokenData, error } = await supabase.from('token').select('token');
+    if (error) {
+      console.error('Error getting token:', error);
     }
-  });
-  if(response.status !== 200) {
-    return "Sorry, there was an error booking the appointment. Please try again.";
-  }
+    const token = tokenData?.[0]?.token;
+    
+    if (!token) {
+      console.log(tokenData);
+      console.log("No valid token found");
+      return "Please sign in with Google to book appointments.";
+    }
+    
+    //book the appointment
+    //call the google calendar api to book the appointment
+    const response = await fetch(`http://localhost:3000/api/calendar/events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(text),
+    });
+    if (response.status !== 200) {
+      return "Sorry, there was an error booking the appointment. Please try again.";
+    }
 
-  console.log(response);
+    console.log("Appointment booked successfully", response);
 
-  const data = await response.json();
+    const data = await response.json();
 
-  console.log(data);
+    console.log(data);
 
-  return "Appointment booked successfully";
+    return "Appointment booked successfully";
   } catch (error) {
     console.error(error);
     return "Sorry, there was an error booking the appointment. Please try again. Error: " + error;
   }
- }
+}
 
 
- //will do same for cancel appointment
- async cancelAppointment(message: string, phoneNumber: string): Promise<string> {
+//will do same for cancel appointment
+async cancelAppointment(message: string, phoneNumber: string): Promise<string> {
   try {
     const patientData = await getPatientByPhone(phoneNumber);
     console.log(patientData);
     
     if (!patientData) {
       return "You are not registered. Please register first.";
+    }
+
+    // Get access token from localStorage
+    const { getValidAccessToken } = await import('@/lib/auth-utils');
+    const token = await getValidAccessToken();
+    
+    if (!token) {
+      return "Please sign in with Google to manage appointments.";
     }
 
     const prompt = `Cancel an appointment for the patient with the following message: ${message} and patient data: ${JSON.stringify(patientData)} 
@@ -156,7 +181,7 @@ export class GeminiService {
         eventId: "event_id_here" // The ID of the event to cancel
       }
     }
-      just return the json format, no other text
+    just return the json format, no other text
     `;
     const result = await this.model.generateContent(prompt);
     console.log(result.response.text().trim());
@@ -173,6 +198,10 @@ export class GeminiService {
     
     const eventsResponse = await fetch(`http://localhost:3000/api/calendar/events`, {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
       body: JSON.stringify({
         method: "calendar.events.list",
         params: {
@@ -181,10 +210,7 @@ export class GeminiService {
           timeMax: tomorrow.toISOString(),
           maxResults: 50
         }
-      }),
-      headers: {
-        "Content-Type": "application/json"
-      }
+      })
     });
 
     if (eventsResponse.status !== 200) {
@@ -254,15 +280,16 @@ strictly follow the json format, no other text
     // Now cancel the specific event
     const cancelResponse = await fetch(`http://localhost:3000/api/calendar/events`, {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
       body: JSON.stringify({
         method: "calendar.events.delete",
         params: {
           eventId: matchData.eventId
         }
-      }),
-      headers: {
-        "Content-Type": "application/json"
-      }
+      })
     });
 
     if (cancelResponse.status !== 200) {

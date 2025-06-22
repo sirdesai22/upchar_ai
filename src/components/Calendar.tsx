@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase-client'
+import { getValidAccessToken } from '@/lib/auth-utils'
 
 export interface CalendarEvent {
   id?: string
@@ -46,21 +46,6 @@ export default function Calendar() {
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(new Date())
 
-  // Get access token from URL or session
-  const getAccessToken = async () => {
-    // First try to get from URL parameters
-    const urlParams = new URLSearchParams(window.location.search)
-    const urlToken = urlParams.get('access_token')
-    
-    if (urlToken) {
-      return urlToken
-    }
-    
-    // Fallback to session token
-    const { data: { session } } = await supabase.auth.getSession()
-    return session?.provider_token || session?.access_token
-  }
-
   useEffect(() => {
     loadEvents()
   }, [selectedDate])
@@ -70,6 +55,10 @@ export default function Calendar() {
       setLoading(true)
       setError(null)
       
+      const token = await getValidAccessToken()
+      if (!token) {
+        throw new Error('No valid access token available. Please sign in with Google.')
+      }
 
       // Get events for the selected date and next 7 days
       const startDate = new Date(selectedDate)
@@ -79,7 +68,8 @@ export default function Calendar() {
       const response = await fetch('http://localhost:3000/api/calendar/events', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           method: 'calendar.events.list',
