@@ -1,8 +1,7 @@
 import twilio from "twilio";
 import { GeminiService } from "@/services/gemini";
-import { getPatientByPhone, PatientData } from "@/services/supabase";
+import { getPatientByPhone } from "@/services/supabase";
 import { supabase } from "@/lib/supabase-client";
-import calenderAgent from "@/agents/calender_agent";
 
 const intents = [
   "register",

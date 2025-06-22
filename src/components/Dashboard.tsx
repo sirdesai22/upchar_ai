@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase-client';
+import { useRouter } from 'next/navigation';
+import GoogleLogin from './GoogleLogin';
 
 interface Doctor {
   id: string;
@@ -30,7 +32,7 @@ export default function Dashboard() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'doctors' | 'patients'>('doctors');
-
+  const router = useRouter();
   useEffect(() => {
     fetchData();
   }, []);
@@ -93,6 +95,11 @@ export default function Dashboard() {
     }
   };
 
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/');
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -135,6 +142,7 @@ export default function Dashboard() {
               >
                 Patients ({patients.length})
               </button>
+              <GoogleLogin />
             </div>
           </div>
         </div>

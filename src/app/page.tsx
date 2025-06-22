@@ -3,6 +3,7 @@ import React from 'react'
 import Calendar from '@/components/Calendar'
 import Dashboard from '@/components/Dashboard'
 import GoogleLogin from '@/components/GoogleLogin'
+import { supabase } from '@/lib/supabase-client'
 
 export default function Home() {
   return (

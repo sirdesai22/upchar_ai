@@ -1,89 +1,86 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase-client'
-import Calendar from './Calendar'
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase-client";
+import Calendar from "./Calendar";
 
 export default function GoogleLogin() {
-  const [loading, setLoading] = useState(false)
-  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState<any>(null);
+
+  const [data, setData] = useState<any>(null);
 
   const handleGoogleLogin = async () => {
     try {
-      setLoading(true)
+      setLoading(true);
       const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: "google",
         options: {
           redirectTo: `https://kkekzglmarngrphfjhai.supabase.co/auth/v1/callback`,
-          scopes: 'https://www.googleapis.com/auth/calendar'
-        }
-      })
+          scopes: "https://www.googleapis.com/auth/calendar",
+        },
+      });
+      setData(data);
+      // const accessToken = data.session?.access_token;
 
       if (error) {
-        alert('Error signing in with Google: ' + error.message)
+        alert("Error signing in with Google: " + error.message);
       }
     } catch (error) {
-      alert('An unexpected error occurred')
+      alert("An unexpected error occurred");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleSignOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut()
+      const { error } = await supabase.auth.signOut();
       if (error) {
         // Handle error silently
       } else {
-        setUser(null)
+        setUser(null);
       }
     } catch (error) {
       // Handle error silently
     }
-  }
+  };
 
   // Check if user is already logged in
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-    }
-    getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setUser(user);
+    };
+    getUser();
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null)
-    })
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+    });
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => subscription.unsubscribe();
+  }, []);
 
   if (user) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="bg-white shadow-sm border-b">
-          <div className="max-w-6xl mx-auto px-6 py-4">
-            <div className="flex justify-between items-center">
-              <h1 className="text-2xl font-bold text-gray-900">Upchar AI</h1>
-              <div className="flex items-center space-x-4">
-                <span className="text-gray-600">Welcome, {user.email}</span>
-                <button
-                  onClick={handleSignOut}
-                  className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                >
-                  Sign Out
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <Calendar />
+      <div className=" bg-gray-50">
+        <button
+          onClick={handleSignOut}
+          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+        >
+          Sign Out
+        </button>
       </div>
-    )
+    );
   }
 
   return (
-    <div className="flex justify-center items-center h-screen">
+    <div className="flex justify-center items-center">
       <button
         onClick={handleGoogleLogin}
         disabled={loading}
@@ -116,5 +113,5 @@ export default function GoogleLogin() {
         )}
       </button>
     </div>
-  )
-} 
+  );
+}
