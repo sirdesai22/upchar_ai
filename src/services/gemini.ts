@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '@/config/env';
-import { checkPhoneExists, insertPatient, PatientData } from './supabase';
+import { checkPhoneExists, getPatientByPhone, insertPatient, PatientData } from './supabase';
 import { getPatientSession, updatePatientSession, clearPatientSession, isSessionComplete, getMissingFields } from '@/lib/patient-sessions';
 import { sarvamService } from './sarvam';
 
@@ -11,8 +11,8 @@ export interface ChatMessage {
 
 export interface CalendarEvent {
   id: string;
-  summary: string;
   description?: string;
+  summary: string;
   start: {
     dateTime: string;
     timeZone: string;
@@ -48,7 +48,254 @@ export class GeminiService {
     this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
   }
 
-  /**
+  async getIntent(message: string, intents: string[]): Promise<string> {
+    const prompt = `Analyse the message and determine the user's intent. Provide the output in the following JSON format:
+    {
+      "intent": "", // Output single intent from the list of intents
+    }
+      Message: ${message}
+      make sure the intent is one of the following: ${intents.join(', ')}
+    `
+
+    const result = await this.model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text().trim();
+    return text;
+  }
+
+ async bookAppointment(message: string, phoneNumber: string): Promise<string> {
+  try{
+  const patientData = await getPatientByPhone(phoneNumber);
+  console.log(patientData);
+
+  if(!patientData) {
+    return "You are not registered. Please register first.";
+  }
+
+  const prompt = `Book an appointment for the patient with the following message: ${message} and patient data: ${JSON.stringify(patientData)} consider the patient priority and disease in the appointment booking
+    output the response in the following json format:
+    {
+      method: "calendar.events.insert", // calendar.events.list, calendar.events.insert, calendar.events.update, calendar.events.delete
+      params: {
+        summary: "", // Priority of the appointment
+        description: "", // purpose of visit/appointment description
+        start: {
+          dateTime: "", // example: 2025-06-22T09:00:00+05:30
+          timeZone: "Asia/Kolkata"
+        },
+        end: {
+          dateTime: "",
+          timeZone: "Asia/Kolkata"
+        }
+      }
+    }
+    }
+  `;
+  const result = await this.model.generateContent(prompt);
+    //convert the result to json
+    //remove the ```json and ``` from the result
+    const text = JSON.parse(result.response.text().trim().replace(/```json\s*/, '').replace(/\s*```$/, ''));
+
+  console.log(text);
+
+
+  //book the appointment
+  //call the google calendar api to book the appointment
+  const response = await fetch(`http://localhost:3000/api/calendar/events`, {
+    method: "POST",
+    body: JSON.stringify(text),
+    headers: {
+      "Content-Type": "application/json"
+    }
+  });
+  if(response.status !== 200) {
+    return "Sorry, there was an error booking the appointment. Please try again.";
+  }
+
+  console.log(response);
+
+  const data = await response.json();
+
+  console.log(data);
+
+  return "Appointment booked successfully";
+  } catch (error) {
+    console.error(error);
+    return "Sorry, there was an error booking the appointment. Please try again. Error: " + error;
+  }
+ }
+
+
+ //will do same for cancel appointment
+ async cancelAppointment(message: string, phoneNumber: string): Promise<string> {
+  try {
+    const patientData = await getPatientByPhone(phoneNumber);
+    console.log(patientData);
+    
+    if (!patientData) {
+      return "You are not registered. Please register first.";
+    }
+
+    const prompt = `Cancel an appointment for the patient with the following message: ${message} and patient data: ${JSON.stringify(patientData)} 
+    First, get all events for today and tomorrow, then find which event the user wants to cancel based on their message.
+    output the response in the following json format:
+    {
+      method: "calendar.events.list", // First get events
+      params: {
+        calendarId: "primary",
+        //based on the patient date and time, get the events for that day and time
+        timeMin: "2025-01-20T00:00:00Z", // Today's date
+        timeMax: "2025-01-22T00:00:00Z", // Tomorrow's date
+        maxResults: 50
+      }
+    }
+    After getting the events, analyze which event matches the user's request and return:
+    {
+      method: "calendar.events.delete",
+      params: {
+        eventId: "event_id_here" // The ID of the event to cancel
+      }
+    }
+      just return the json format, no other text
+    `;
+    const result = await this.model.generateContent(prompt);
+    console.log(result.response.text().trim());
+    //convert the result to json
+    //remove the ```json and ``` from the result
+    const text = JSON.parse(result.response.text().trim().replace(/```json\s*/, '').replace(/\s*```$/, ''));
+
+    console.log(text);
+
+    // First, get all events for today and tomorrow
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const eventsResponse = await fetch(`http://localhost:3000/api/calendar/events`, {
+      method: "POST",
+      body: JSON.stringify({
+        method: "calendar.events.list",
+        params: {
+          calendarId: "primary",
+          timeMin: today.toISOString(),
+          timeMax: tomorrow.toISOString(),
+          maxResults: 50
+        }
+      }),
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (eventsResponse.status !== 200) {
+      return "Sorry, there was an error getting your appointments. Please try again.";
+    }
+
+    const eventsData = await eventsResponse.json();
+    console.log("All events:", eventsData);
+
+    if (!eventsData.data || !eventsData.data.items || eventsData.data.items.length === 0) {
+      return "You don't have any appointments scheduled for today or tomorrow.";
+    }
+
+    // Use AI to find the matching event based on user's message and available events
+    const events = eventsData.data.items;
+    const eventsDescription = events.map((event: any, index: number) => 
+      `${index + 1}. ID: ${event.id} - ${event.summary || 'No title'} - ${event.description || 'No description'} - ${event.start?.dateTime || 'No time'}`
+    ).join('\n');
+
+    const matchPrompt = `The user wants to cancel an appointment. Here are their available appointments:
+
+${eventsDescription}
+
+User's message: "${message}"
+
+Patient data: ${JSON.stringify(patientData)}
+
+Instructions:
+- Analyze the user's message and match it to one of the appointments above
+- Consider the patient's name, disease, and any specific details mentioned
+- Return the event ID of the appointment to cancel
+- If no clear match is found, return "no_match"
+
+Return only the event ID or "no_match" in JSON format with no other text:
+{
+  "eventId": "event_id_here"
+}
+strictly follow the json format, no other text
+`;
+
+    const matchResult = await this.model.generateContent(matchPrompt);
+    const matchText = matchResult.response.text().trim();
+    
+    // Parse the AI response
+    let matchData;
+    try {
+      const cleanText = matchText.replace(/```json\s*/, '').replace(/\s*```$/, '');
+      console.log(cleanText);
+      matchData = JSON.parse(cleanText);
+    } catch (error) {
+      console.error("Failed to parse AI match response:", error);
+      return "Sorry, I couldn't understand which appointment you want to cancel. Please be more specific.";
+    }
+
+    if (matchData.eventId === "no_match" || !matchData.eventId) {
+      return "I couldn't find a matching appointment. Please specify which appointment you want to cancel, or check your appointments first.";
+    }
+
+    // Verify the event ID exists in the events list
+    const selectedEvent = events.find((event: any) => event.id === matchData.eventId);
+    if (!selectedEvent) {
+      return "Invalid appointment selection. Please try again.";
+    }
+
+    console.log("Selected event to cancel:", selectedEvent);
+
+    // Now cancel the specific event
+    const cancelResponse = await fetch(`http://localhost:3000/api/calendar/events`, {
+      method: "POST",
+      body: JSON.stringify({
+        method: "calendar.events.delete",
+        params: {
+          eventId: matchData.eventId
+        }
+      }),
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (cancelResponse.status !== 200) {
+      return "Sorry, there was an error cancelling the appointment. Please try again.";
+    }
+
+    const cancelData = await cancelResponse.json();
+    console.log("Cancel response:", cancelData);
+
+    return `Appointment "${selectedEvent.summary || 'your appointment'}" has been cancelled successfully.`;
+  } catch (error) {
+    console.error("Cancel appointment error:", error);
+    return "Sorry, there was an error cancelling the appointment. Please try again.";
+  }
+}   
+
+  async changeLanguage(message: string, phoneNumber: string): Promise<string> {
+
+    const patientData = await getPatientByPhone(phoneNumber);
+    console.log(patientData);
+
+    if(!patientData) {
+      return "You are not registered. Please register first.";
+    }
+
+    //go to database and update the language
+    const updatedPatientData = await updatePatientSession(phoneNumber, { language: message });
+    console.log(updatedPatientData);
+
+    return "Language changed successfully";
+  }
+
+    /**
    * Check if a patient exists in the database
    * @param phoneNumber - The patient's phone number
    * @returns Promise<boolean> - true if patient exists, false otherwise

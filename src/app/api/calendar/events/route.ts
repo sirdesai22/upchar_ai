@@ -8,17 +8,18 @@ const calendar = google.calendar('v3')
  * Get Google OAuth2 client with access token from URL
  */
 async function getOAuth2Client(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const accessToken = searchParams.get('access_token')
+  // const { searchParams } = new URL(request.url)
+  // const accessToken = searchParams.get('access_token')
   
-  if (!accessToken) {
-    throw new Error('No access token provided in URL parameters')
-  }
+  // if (!accessToken) {
+  //   throw new Error('No access token provided in URL parameters')
+  // }
 
   const oauth2Client = new google.auth.OAuth2()
   oauth2Client.setCredentials({
     access_token: process.env.ACCESS_TOKEN || ''
   })
+  console.log(process.env.ACCESS_TOKEN);
 
   return oauth2Client
 }
@@ -27,6 +28,8 @@ export async function POST(request: NextRequest) {
     const { method, params } = await request.json();
 
     const authClient = await getOAuth2Client(request);
+
+    console.log(method, params);
 
     let result;
     switch (method) {
@@ -84,7 +87,7 @@ export async function POST(request: NextRequest) {
 
 
   } catch (error) {
-    console.error('MCP Calendar API error:', error);
+    console.error('MCP Calendar API error:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { 
         success: false, 
