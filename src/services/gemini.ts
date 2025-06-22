@@ -517,9 +517,10 @@ Return only the explanation, nothing else.`;
             message: missingFieldsResponse
           };
         } else {
+          // No session data and no data extracted - ask for all fields
           return {
             success: false,
-            message: "I couldn't understand the information. Please provide: Name, Age, Gender, Disease, Language (e.g., John, 25, Male, Diabetes, English)"
+            message: "I couldn't understand the information. Please provide your details: name, age, gender, what symptoms you're experiencing, and preferred language (defaults to English). You can share this in any format that's comfortable for you."
           };
         }
       }
@@ -546,42 +547,25 @@ Return only the explanation, nothing else.`;
         priority
       };
       
-      // Insert corrected patient data into database
+      // Insert patient data into database
       const insertedPatient = await insertPatient(patientDataWithPriority);
       
-      // Clear session after successful registration
+      // Clear the session after successful registration
       clearPatientSession(phoneNumber);
       
-      // Check if any corrections were made
-      const hasCorrections = 
-        patientData.name !== correctedPatientData.name ||
-        patientData.disease !== correctedPatientData.disease ||
-        patientData.language !== correctedPatientData.language;
-      
-      // Generate disease explanation
-      const diseaseExplanation = await this.explainDisease(correctedPatientData.disease);
-      
-      const correctionMessage = hasCorrections ? 
-        " (I've corrected some spelling in your information)" : "";
-      
-      const finalMessage = `Welcome ${correctedPatientData.name}! Your registration is complete${correctionMessage}. ${diseaseExplanation} How may I help you today?`;
-      
-      // Translate the final message if needed
-      let translatedMessage = finalMessage;
-      if (correctedPatientData.language && sarvamService.isTranslationNeeded(correctedPatientData.language)) {
-        const translation = await sarvamService.translateRegistrationMessage(finalMessage, correctedPatientData.language);
-        translatedMessage = translation.success ? translation.translatedText! : finalMessage;
-      }
+      // Generate registration completion message
+      const completionMessage = await this.generateRegistrationCompletionMessage(insertedPatient);
       
       return {
         success: true,
-        message: translatedMessage,
+        message: completionMessage,
         patientData: insertedPatient
       };
     } catch (error) {
+      console.error('Error processing patient data:', error);
       return {
         success: false,
-        message: "Sorry, there was an error processing your information. Please try again."
+        message: "Sorry, there was an issue processing your information. Please try again with your details: name, age, gender, symptoms, and preferred language."
       };
     }
   }
@@ -652,14 +636,13 @@ Remember: This is a returning patient who is already registered.`;
     const prompt = `You are a healthcare assistant for Upchar AI. 
 
 Instructions:
-- Welcome a new patient to the system
-- Ask for their full name to start registration
+- Welcome new patient briefly
+- Ask for: name, age, gender, symptoms, language (optional)
 - Keep response under 2 sentences
-- Be welcoming and encouraging
-- Make it feel like a natural conversation
-- Use a friendly, professional tone
+- Be friendly but concise
+- Language defaults to English
 
-Remember: This is a new patient who needs to register.`;
+Remember: Keep it short and simple.`;
 
     try {
       const result = await this.model.generateContent(prompt);
@@ -668,7 +651,7 @@ Remember: This is a new patient who needs to register.`;
       
       return text;
     } catch (error) {
-      const fallbackResponse = `Welcome to Upchar AI! To provide personalized care, I need your full name.`;
+      const fallbackResponse = `Welcome! Please share: name, age, gender, symptoms, and language (optional).`;
       return fallbackResponse;
     }
   }
@@ -680,6 +663,9 @@ Remember: This is a new patient who needs to register.`;
    * @returns Promise<string> - Response asking for missing information
    */
   async generateMissingFieldsResponse(session: any, missingFields: string[]): Promise<string> {
+    // Set language to English by default if not provided
+    const currentLanguage = session.language || 'English';
+    
     const prompt = `You are a healthcare assistant for Upchar AI.
 
 Current session data:
@@ -687,21 +673,23 @@ Current session data:
 - Age: ${session.age || 'Not provided'}
 - Gender: ${session.gender || 'Not provided'}
 - Disease/Condition: ${session.disease || 'Not provided'}
-- Language: ${session.language || 'English'}
+- Language: ${currentLanguage}
 
 Missing information: ${missingFields.join(', ')}
 
 Instructions:
-- Ask for the missing information naturally and conversationally
+- Ask ONLY for the missing information, not what's already provided
+- Be specific about what's missing
 - For disease/condition: Ask in a way that encourages natural descriptions
 - Examples: "What symptoms are you experiencing?" or "What health issue brings you here today?"
 - Keep response under 2 sentences
 - Be encouraging and helpful
-- Respond in ${session.language || 'English'}
+- Respond in ${currentLanguage}
 - Do NOT ask for address or other fields not in our database
 - Make it feel like a natural conversation, not a form
+- If language is missing, mention it defaults to English
 
-Remember: Help the patient feel comfortable sharing their health information.`;
+Remember: Help the patient feel comfortable sharing their health information. Only ask for what's missing.`;
 
     try {
       const result = await this.model.generateContent(prompt);
@@ -709,8 +697,8 @@ Remember: Help the patient feel comfortable sharing their health information.`;
       const text = response.text();
       
       // Translate response if needed
-      if (session.language && sarvamService.isTranslationNeeded(session.language)) {
-        const translation = await sarvamService.translateGeminiResponse(text, session.language);
+      if (currentLanguage !== 'English' && sarvamService.isTranslationNeeded(currentLanguage)) {
+        const translation = await sarvamService.translateGeminiResponse(text, currentLanguage);
         return translation.success ? translation.translatedText! : text;
       }
       
@@ -723,15 +711,16 @@ Remember: Help the patient feel comfortable sharing their health information.`;
           case 'age': return 'your age';
           case 'gender': return 'your gender (Male/Female/Other)';
           case 'disease': return 'what symptoms or health issue you\'re experiencing';
+          case 'language': return 'your preferred language (defaults to English)';
           default: return field;
         }
       });
       
-      const fallbackResponse = `I need a few more details: ${fieldNames.join(', ')}. Please share this information so I can help you better.`;
+      const fallbackResponse = `I just need a few more details: ${fieldNames.join(', ')}. Please share this information so I can help you better.`;
       
       // Translate fallback response if needed
-      if (session.language && sarvamService.isTranslationNeeded(session.language)) {
-        const translation = await sarvamService.translateGeminiResponse(fallbackResponse, session.language);
+      if (currentLanguage !== 'English' && sarvamService.isTranslationNeeded(currentLanguage)) {
+        const translation = await sarvamService.translateGeminiResponse(fallbackResponse, currentLanguage);
         return translation.success ? translation.translatedText! : fallbackResponse;
       }
       
@@ -1002,5 +991,23 @@ Return only the cleaned and corrected disease description, nothing else.`;
     } catch (error) {
       return text;
     }
+  }
+
+  /**
+   * Generate registration completion message
+   * @param patientData - Inserted patient data
+   * @returns Promise<string> - Generated completion message
+   */
+  async generateRegistrationCompletionMessage(patientData: PatientData): Promise<string> {
+    const completionMessage = `Welcome ${patientData.name}! Your registration is complete. How may I help you today?`;
+    
+    // Translate the message if needed
+    let translatedMessage = completionMessage;
+    if (patientData.language && sarvamService.isTranslationNeeded(patientData.language)) {
+      const translation = await sarvamService.translateRegistrationMessage(completionMessage, patientData.language);
+      translatedMessage = translation.success ? translation.translatedText! : completionMessage;
+    }
+    
+    return translatedMessage;
   }
 } 
