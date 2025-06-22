@@ -564,7 +564,14 @@ Return only the explanation, nothing else.`;
    * @param patientData - Patient data for response generation
    * @returns Promise<string> - Generated response
    */
-  async generateExistingPatientResponse(patientData: PatientData): Promise<string> {
+  async generateExistingPatientResponse(phoneNumber: string): Promise<string> {
+
+    const patientData = await getPatientByPhone(phoneNumber);
+    console.log(patientData);
+
+    if(!patientData) {
+      return "You are not registered. Please register first.";
+    }
     const prompt = `You are a healthcare assistant for Upchar AI. 
 
 Patient Information:
@@ -718,7 +725,7 @@ Remember: Help the patient feel comfortable sharing their health information.`;
     phoneNumber?: string
   ): Promise<string> {
     if (isExistingPatient && patientData) {
-      return await this.generateExistingPatientResponse(patientData);
+      return await this.generateExistingPatientResponse(phoneNumber!);
     } else if (phoneNumber) {
       return await this.generateNewPatientResponse(phoneNumber);
     } else {

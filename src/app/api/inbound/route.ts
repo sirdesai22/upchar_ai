@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
     const geminiService = new GeminiService();
 
-    let user_intent = await geminiService.getIntent(incomingMessage, intents);
+    let user_intent: any = await geminiService.getIntent(incomingMessage, intents);
     console.log(user_intent);
     //format the user_intent to json
     //remove the ```json and ``` from the user_intent
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
         if (patientData) {
           // Generate response for existing patient
           response = await geminiService.generateExistingPatientResponse(
-            patientData
+            fromNumber
           );
         } else {
           // Fallback if patient data not found

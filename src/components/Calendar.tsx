@@ -44,18 +44,7 @@ export default function Calendar() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showCreateForm, setShowCreateForm] = useState(false)
-  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null)
-
-  // Form states
-  const [formData, setFormData] = useState({
-    summary: '',
-    description: '',
-    startDateTime: '',
-    endDateTime: '',
-    location: '',
-    attendees: ''
-  })
+  const [selectedDate, setSelectedDate] = useState(new Date())
 
   // Get access token from URL or session
   const getAccessToken = async () => {
@@ -74,427 +63,336 @@ export default function Calendar() {
 
   useEffect(() => {
     loadEvents()
-  }, [])
+  }, [selectedDate])
 
   const loadEvents = async () => {
     try {
       setLoading(true)
       setError(null)
       
-      const token = await getAccessToken()
-      if (!token) {
-        throw new Error('No access token available')
-      }
 
-      const response = await fetch(`/api/calendar/events?maxResults=20&access_token=${encodeURIComponent(token)}`)
+      // Get events for the selected date and next 7 days
+      const startDate = new Date(selectedDate)
+      const endDate = new Date(selectedDate)
+      endDate.setDate(endDate.getDate() + 7)
+
+      const response = await fetch('http://localhost:3000/api/calendar/events', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          method: 'calendar.events.list',
+          params: {
+            timeMin: startDate.toISOString(),
+            timeMax: endDate.toISOString(),
+            maxResults: 50,
+            orderBy: 'startTime',
+            singleEvents: true
+          }
+        })
+      })
 
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to load events')
       }
 
-      const eventsList = await response.json()
-      setEvents(eventsList)
+      const result = await response.json()
+      if (result.success && result.data && result.data.items) {
+        setEvents(result.data.items)
+      } else {
+        setEvents([])
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load events')
+      setEvents([])
     } finally {
       setLoading(false)
     }
   }
 
-  const handleCreateEvent = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      setLoading(true)
-      setError(null)
-
-      const token = await getAccessToken()
-      if (!token) {
-        throw new Error('No access token available')
-      }
-
-      const attendees = formData.attendees
-        ? formData.attendees.split(',').map(email => ({ email: email.trim() }))
-        : undefined
-
-      const eventData: CreateEventRequest = {
-        summary: formData.summary,
-        description: formData.description || undefined,
-        startDateTime: formData.startDateTime,
-        endDateTime: formData.endDateTime,
-        location: formData.location || undefined,
-        attendees
-      }
-
-      const response = await fetch(`/api/calendar/events?access_token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(eventData)
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to create event')
-      }
-
-      setShowCreateForm(false)
-      resetForm()
-      await loadEvents()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create event')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleUpdateEvent = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!editingEvent?.id) return
-
-    try {
-      setLoading(true)
-      setError(null)
-
-      const token = await getAccessToken()
-      if (!token) {
-        throw new Error('No access token available')
-      }
-
-      const attendees = formData.attendees
-        ? formData.attendees.split(',').map(email => ({ email: email.trim() }))
-        : undefined
-
-      const eventData: UpdateEventRequest = {
-        eventId: editingEvent.id,
-        summary: formData.summary || undefined,
-        description: formData.description || undefined,
-        startDateTime: formData.startDateTime || undefined,
-        endDateTime: formData.endDateTime || undefined,
-        location: formData.location || undefined,
-        attendees
-      }
-
-      const response = await fetch(`/api/calendar/events?access_token=${encodeURIComponent(token)}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(eventData)
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to update event')
-      }
-
-      setEditingEvent(null)
-      resetForm()
-      await loadEvents()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update event')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleDeleteEvent = async (eventId: string) => {
-    if (!confirm('Are you sure you want to delete this event?')) return
-
-    try {
-      setLoading(true)
-      setError(null)
-
-      const token = await getAccessToken()
-      if (!token) {
-        throw new Error('No access token available')
-      }
-
-      const response = await fetch(`/api/calendar/events?eventId=${eventId}&access_token=${encodeURIComponent(token)}`, {
-        method: 'DELETE'
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to delete event')
-      }
-
-      await loadEvents()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete event')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const startEditEvent = (event: CalendarEvent) => {
-    setEditingEvent(event)
-    setFormData({
-      summary: event.summary,
-      description: event.description || '',
-      startDateTime: event.start.dateTime.slice(0, 16), // Remove seconds for datetime-local input
-      endDateTime: event.end.dateTime.slice(0, 16),
-      location: event.location || '',
-      attendees: event.attendees?.map(a => a.email).join(', ') || ''
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     })
   }
 
-  const resetForm = () => {
-    setFormData({
-      summary: '',
-      description: '',
-      startDateTime: '',
-      endDateTime: '',
-      location: '',
-      attendees: ''
+  const formatTime = (dateTime: string) => {
+    return new Date(dateTime).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
     })
   }
 
-  const formatDateTime = (dateTime: string) => {
-    return new Date(dateTime).toLocaleString()
+  const formatDuration = (start: string, end: string) => {
+    const startTime = new Date(start)
+    const endTime = new Date(end)
+    const durationMs = endTime.getTime() - startTime.getTime()
+    const durationHours = Math.floor(durationMs / (1000 * 60 * 60))
+    const durationMinutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60))
+    
+    if (durationHours > 0) {
+      return `${durationHours}h ${durationMinutes}m`
+    }
+    return `${durationMinutes}m`
   }
+
+  const getEventTypeColor = (summary: string) => {
+    const lowerSummary = summary.toLowerCase()
+    if (lowerSummary.includes('emergency') || lowerSummary.includes('urgent')) {
+      return 'bg-red-100 text-red-800 border-red-200'
+    }
+    if (lowerSummary.includes('consultation') || lowerSummary.includes('checkup')) {
+      return 'bg-blue-100 text-blue-800 border-blue-200'
+    }
+    if (lowerSummary.includes('follow-up') || lowerSummary.includes('review')) {
+      return 'bg-green-100 text-green-800 border-green-200'
+    }
+    return 'bg-gray-100 text-gray-800 border-gray-200'
+  }
+
+  const groupEventsByDate = (events: CalendarEvent[]) => {
+    const grouped: { [key: string]: CalendarEvent[] } = {}
+    
+    events.forEach(event => {
+      const date = new Date(event.start.dateTime).toDateString()
+      if (!grouped[date]) {
+        grouped[date] = []
+      }
+      grouped[date].push(event)
+    })
+    
+    return grouped
+  }
+
+  const groupedEvents = groupEventsByDate(events)
+  const sortedDates = Object.keys(groupedEvents).sort()
 
   if (loading && events.length === 0) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="text-lg">Loading calendar...</div>
+      <div className="flex justify-center items-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="text-lg text-gray-600">Loading appointments...</div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Google Calendar</h1>
-        <button
-          onClick={() => setShowCreateForm(true)}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-        >
-          Create Event
-        </button>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-          {error}
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Calendar View */}
+        <div className="bg-white rounded-lg shadow-sm border h-[600px] flex flex-col">
+          <div className="px-6 py-4 border-b border-gray-200 flex-shrink-0">
+            <h2 className="text-xl font-semibold text-gray-900">Calendar</h2>
+            <p className="text-sm text-gray-500 mt-1">View and manage your appointments</p>
+          </div>
+          <div className="p-6 flex-1 overflow-y-auto">
+            {error ? (
+              <div className="text-center py-8">
+                <div className="text-red-500 mb-4">
+                  <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <p className="text-red-600 font-medium">Error loading appointments</p>
+                <p className="text-sm text-gray-500 mt-2">{error}</p>
+                <button 
+                  onClick={loadEvents}
+                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Try Again
+                </button>
+              </div>
+            ) : events.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-gray-400 mb-4">
+                  <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3a4 4 0 118 0v4m-4 6v6m-4-6h8m-8 6h8" />
+                  </svg>
+                </div>
+                <p className="text-gray-500 font-medium">No appointments found</p>
+                <p className="text-sm text-gray-400 mt-2">You don't have any appointments scheduled for the next 7 days.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {sortedDates.map(date => (
+                  <div key={date} className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                      {formatDate(new Date(date))}
+                    </h3>
+                    <div className="space-y-3">
+                      {groupedEvents[date].map((event, index) => (
+                        <div key={event.id || index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getEventTypeColor(event.summary)}`}>
+                                  {event.summary}
+                                </span>
+                                <span className="text-sm text-gray-500">
+                                  {formatTime(event.start.dateTime)} - {formatTime(event.end.dateTime)}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  ({formatDuration(event.start.dateTime, event.end.dateTime)})
+                                </span>
+                              </div>
+                              
+                              {event.description && (
+                                <p className="text-sm text-gray-700 mb-2">{event.description}</p>
+                              )}
+                              
+                              {event.location && (
+                                <div className="flex items-center text-sm text-gray-500">
+                                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  </svg>
+                                  {event.location}
+                                </div>
+                              )}
+                              
+                              {event.attendees && event.attendees.length > 0 && (
+                                <div className="mt-2">
+                                  <p className="text-xs text-gray-500 mb-1">Attendees:</p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {event.attendees.map((attendee, idx) => (
+                                      <span key={idx} className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-700">
+                                        {attendee.name || attendee.email}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      )}
 
-      {/* Create Event Form */}
-      {showCreateForm && (
-        <div className="mb-6 p-6 bg-gray-50 rounded-lg">
-          <h2 className="text-xl font-semibold mb-4">Create New Event</h2>
-          <form onSubmit={handleCreateEvent} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Title *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.summary}
-                  onChange={(e) => setFormData({ ...formData, summary: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Location</label>
-                <input
-                  type="text"
-                  value={formData.location}
-                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Start Date & Time *</label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={formData.startDateTime}
-                  onChange={(e) => setFormData({ ...formData, startDateTime: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">End Date & Time *</label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={formData.endDateTime}
-                  onChange={(e) => setFormData({ ...formData, endDateTime: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Description</label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full p-2 border rounded"
-                rows={3}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Attendees (comma-separated emails)</label>
-              <input
-                type="text"
-                value={formData.attendees}
-                onChange={(e) => setFormData({ ...formData, attendees: e.target.value })}
-                className="w-full p-2 border rounded"
-                placeholder="email1@example.com, email2@example.com"
-              />
-            </div>
-            <div className="flex space-x-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
-              >
-                {loading ? 'Creating...' : 'Create Event'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCreateForm(false)
-                  resetForm()
-                }}
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Edit Event Form */}
-      {editingEvent && (
-        <div className="mb-6 p-6 bg-yellow-50 rounded-lg">
-          <h2 className="text-xl font-semibold mb-4">Edit Event</h2>
-          <form onSubmit={handleUpdateEvent} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Title</label>
-                <input
-                  type="text"
-                  value={formData.summary}
-                  onChange={(e) => setFormData({ ...formData, summary: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Location</label>
-                <input
-                  type="text"
-                  value={formData.location}
-                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Start Date & Time</label>
-                <input
-                  type="datetime-local"
-                  value={formData.startDateTime}
-                  onChange={(e) => setFormData({ ...formData, startDateTime: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">End Date & Time</label>
-                <input
-                  type="datetime-local"
-                  value={formData.endDateTime}
-                  onChange={(e) => setFormData({ ...formData, endDateTime: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Description</label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full p-2 border rounded"
-                rows={3}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Attendees (comma-separated emails)</label>
-              <input
-                type="text"
-                value={formData.attendees}
-                onChange={(e) => setFormData({ ...formData, attendees: e.target.value })}
-                className="w-full p-2 border rounded"
-                placeholder="email1@example.com, email2@example.com"
-              />
-            </div>
-            <div className="flex space-x-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
-              >
-                {loading ? 'Updating...' : 'Update Event'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingEvent(null)
-                  resetForm()
-                }}
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Events List */}
-      <div className="space-y-4">
-        <h2 className="text-2xl font-semibold">Upcoming Events</h2>
-        {events.length === 0 ? (
-          <p className="text-gray-500">No upcoming events found.</p>
-        ) : (
-          events.map((event) => (
-            <div key={event.id} className="p-4 border rounded-lg hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold">{event.summary}</h3>
-                  {event.description && (
-                    <p className="text-gray-600 mt-1">{event.description}</p>
-                  )}
-                  <div className="mt-2 text-sm text-gray-500">
-                    <p>Start: {formatDateTime(event.start.dateTime)}</p>
-                    <p>End: {formatDateTime(event.end.dateTime)}</p>
-                    {event.location && <p>Location: {event.location}</p>}
-                    {event.attendees && event.attendees.length > 0 && (
-                      <p>Attendees: {event.attendees.map(a => a.email).join(', ')}</p>
-                    )}
+        {/* Appointment Statistics */}
+        <div className="bg-white rounded-lg shadow-sm border h-[600px] flex flex-col">
+          <div className="px-6 py-4 border-b border-gray-200 flex-shrink-0">
+            <h2 className="text-xl font-semibold text-gray-900">Appointment Statistics</h2>
+            <p className="text-sm text-gray-500 mt-1">Overview of your schedule</p>
+          </div>
+          <div className="p-6 flex-1 overflow-y-auto">
+            <div className="space-y-6">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3a4 4 0 118 0v4m-4 6v6m-4-6h8m-8 6h8" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-blue-600">Total Appointments</p>
+                      <p className="text-2xl font-semibold text-blue-900">{events.length}</p>
+                    </div>
                   </div>
                 </div>
-                <div className="flex space-x-2 ml-4">
-                  <button
-                    onClick={() => startEditEvent(event)}
-                    className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => event.id && handleDeleteEvent(event.id)}
-                    className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
-                  >
-                    Delete
-                  </button>
+
+                <div className="bg-green-50 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-green-600">Next 7 Days</p>
+                      <p className="text-2xl font-semibold text-green-900">{events.length}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              {/* Today's Appointments */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Today's Appointments</h3>
+                {(() => {
+                  const today = new Date().toDateString()
+                  const todayEvents = groupedEvents[today] || []
+                  
+                  if (todayEvents.length === 0) {
+                    return (
+                      <div className="text-center py-4">
+                        <p className="text-gray-500">No appointments scheduled for today</p>
+                      </div>
+                    )
+                  }
+                  
+                  return (
+                    <div className="space-y-2">
+                      {todayEvents.map((event, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                          <div>
+                            <p className="font-medium text-gray-900">{event.summary}</p>
+                            <p className="text-sm text-gray-500">
+                              {formatTime(event.start.dateTime)} - {formatTime(event.end.dateTime)}
+                            </p>
+                          </div>
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getEventTypeColor(event.summary)}`}>
+                            {formatDuration(event.start.dateTime, event.end.dateTime)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Upcoming Appointments */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Upcoming Appointments</h3>
+                {(() => {
+                  const upcomingEvents = events
+                    .filter(event => new Date(event.start.dateTime) > new Date())
+                    .slice(0, 5)
+                  
+                  if (upcomingEvents.length === 0) {
+                    return (
+                      <div className="text-center py-4">
+                        <p className="text-gray-500">No upcoming appointments</p>
+                      </div>
+                    )
+                  }
+                  
+                  return (
+                    <div className="space-y-2">
+                      {upcomingEvents.map((event, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                          <div>
+                            <p className="font-medium text-gray-900">{event.summary}</p>
+                            <p className="text-sm text-gray-500">
+                              {formatDate(new Date(event.start.dateTime))} at {formatTime(event.start.dateTime)}
+                            </p>
+                          </div>
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getEventTypeColor(event.summary)}`}>
+                            {formatDuration(event.start.dateTime, event.end.dateTime)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
             </div>
-          ))
-        )}
+          </div>
+        </div>
       </div>
     </div>
   )
