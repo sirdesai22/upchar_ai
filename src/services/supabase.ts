@@ -1,9 +1,6 @@
 import { supabase } from '@/lib/supabase-client';
-<<<<<<< HEAD
 import { formatPhoneNumber } from '@/lib/utils';
-=======
 import { getPatientSession } from '@/lib/patient-sessions';
->>>>>>> 79ead504741f122c01489f9295e357a2bbf1578d
 
 export interface PatientData {
   id: string;
