@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🏥 Upchar AI – AI-Powered Multilingual WhatsApp Hospital Assistant
 
-## Getting Started
+> Talk to your hospital in your own language. Book, cancel, or reschedule appointments — all via WhatsApp.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 🚀 Overview
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Upchar AI** is a multilingual, WhatsApp-based AI assistant that enables users to interact with hospitals using natural human language. Patients can describe symptoms, register, and schedule appointments — all without knowing department names or navigating complicated apps.  
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+It uses **agentic AI** principles to understand, plan, and act — replacing manual reception work with intelligent automation.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 🎯 Problem Statement
 
-To learn more about Next.js, take a look at the following resources:
+Patients often struggle with:
+- Language barriers in hospital systems  
+- Not knowing which doctor to consult based on symptoms  
+- Long wait times and overloaded reception desks  
+- Repetitive manual data entry by hospital staff  
+- Unclear communication and appointment errors
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 💡 Our Solution
 
-## Deploy on Vercel
+Upchar AI lets users simply *text their symptoms or request in their preferred language* (e.g., Hindi, Kannada, Marathi).  
+Behind the scenes, our AI agents work together to:
+- Understand the user’s intent and symptoms  
+- Automatically route them to the correct specialist  
+- Book/reschedule/cancel appointments  
+- Register them in the hospital’s database  
+- Handle everything 24/7, without human intervention  
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🧠 Agentic AI System
+
+Our architecture is built on **collaborating AI agents**, each handling a specific responsibility:
+
+| Agent | Role |
+|-------|------|
+| 🧠 Intent + Symptom Agent | Extracts user's request and health symptoms from natural language |
+| 🌐 Translation Agent | Converts regional language to English for processing (and vice versa) |
+| 📅 Booking Agent | Handles scheduling, rescheduling, and doctor availability |
+| 📖 Memory Agent | Stores user preferences, visit history, and language choices |
+
+---
+
+## 🛠️ Tech Stack
+
+- **LLMs + Prompt Engineering** – GeminiAPI for symptom mapping & reasoning  
+- **Twilio API** – WhatsApp messaging interface  
+- **Google Calendar API** – Real-time appointment management  
+- **Supabase** – Hospital database + authentication  
+- **Next.js** – Application Code base
+
+---
+
+## ⚙️ How It Works (Flow)
+
+1. **User sends a message in their language** on WhatsApp  
+2. **Translation Agent** converts it (if needed)  
+3. **Intent & Symptom Agent** understands what the user wants  
+4. **Booking Agent** checks calendar and assigns a doctor
+6. **Confirmation is sent**, and details are saved to the DB  
+
+---
+
+## 🌐 Features
+
+- ✅ Multilingual support (any regional language)  
+- ✅ AI-powered symptom understanding  
+- ✅ Autonomous doctor assignment  
+- ✅ 24/7 availability  
+- ✅ Automatic hospital record updates 
+
+---
+
+## 🧪 Challenges We Solved
+
+- Integrating APIs with conflicting auth/token systems (Twilio, Google)  
+- Designing inter-agent communication with clean handoffs  
+- Maintaining state and session in a stateless messaging environment  
+- Handling vague, real-world symptom descriptions  
+- Ensuring fast and accurate multilingual parsing  
+
+---
+
+## 📦 Future Scope
+
+- Add **voice-based interactions** for low-literacy users  
+- Integrate with **EMR systems** for deeper hospital data  
+- Enable **triage and emergency prioritization**  
+- Build a **mobile dashboard for doctors & staff**  
+- Add **health record generation & sharing via WhatsApp**
+
+---
+
+## 📸 Demo
+
+https://youtu.be/tHS8fiP7ZEs
+
+---
+
+## 🤝 Team BuildBots
+
+---
+
+## 💬 Tagline
+
+**“Your Words. Your Language. Your Doctor.”**
+
+---
+
