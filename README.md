@@ -35,6 +35,12 @@ Behind the scenes, our AI agents work together to:
 
 ---
 
+## 📸 Demo
+
+https://youtu.be/tHS8fiP7ZEs
+
+---
+
 ## 🧠 Agentic AI System
 
 Our architecture is built on **collaborating AI agents**, each handling a specific responsibility:
@@ -95,12 +101,6 @@ Our architecture is built on **collaborating AI agents**, each handling a specif
 - Enable **triage and emergency prioritization**  
 - Build a **mobile dashboard for doctors & staff**  
 - Add **health record generation & sharing via WhatsApp**
-
----
-
-## 📸 Demo
-
-https://youtu.be/tHS8fiP7ZEs
 
 ---
 
