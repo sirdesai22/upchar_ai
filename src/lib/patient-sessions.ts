@@ -1,9 +1,12 @@
 // In-memory storage for patient sessions
 const patientSessions: { [phoneNumber: string]: PatientSession } = {};
 
+// Import the formatPhoneNumber utility
+import { formatPhoneNumber } from './utils';
+
 // Clean phone number for consistent storage
 function cleanPhoneNumber(phoneNumber: string): string {
-  return phoneNumber.replace(/[\s\-\(\)]/g, '');
+  return formatPhoneNumber(phoneNumber);
 }
 
 // Get patient session by phone number

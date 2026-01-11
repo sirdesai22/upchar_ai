@@ -2,6 +2,7 @@ import twilio from "twilio";
 import { GeminiService } from "@/services/gemini";
 import { getPatientByPhone } from "@/services/supabase";
 import { supabase } from "@/lib/supabase-client";
+import { formatPhoneNumber } from "@/lib/utils";
 
 const intents = [
   "register",
@@ -18,6 +19,9 @@ export async function POST(request: Request) {
     const incomingMessage = formData.get("Body") as string;
     const fromNumber = formData.get("From") as string;
 
+    // Format the phone number to 10-digit format
+    const formattedPhoneNumber = formatPhoneNumber(fromNumber);
+
     let response: string;
 
     const geminiService = new GeminiService();
@@ -32,19 +36,19 @@ export async function POST(request: Request) {
 
     switch (user_intent.intent) {
       case "register":
-        response = await geminiService.generateNewPatientResponse(fromNumber);
+        response = await geminiService.generateNewPatientResponse(formattedPhoneNumber);
         break;
       case "enquiry":
-        response = await geminiService.generateExistingPatientResponse(fromNumber);
+        response = await geminiService.generateExistingPatientResponse(formattedPhoneNumber);
         break;
       case "book appointment":
-        response = await geminiService.bookAppointment(incomingMessage, fromNumber);
+        response = await geminiService.bookAppointment(incomingMessage, formattedPhoneNumber);
         break;
       case "cancel appointment":
-        response = await geminiService.cancelAppointment(incomingMessage, fromNumber);
+        response = await geminiService.cancelAppointment(incomingMessage, formattedPhoneNumber);
         break;
       case "change language":
-        response = await geminiService.changeLanguage(incomingMessage, fromNumber);
+        response = await geminiService.changeLanguage(incomingMessage, formattedPhoneNumber);
         break;
       default:
         response = "Sorry, I didn't understand your message. Please try again.";
@@ -72,16 +76,16 @@ export async function POST(request: Request) {
 
     if (isGreeting) {
       // Check if patient exists in database
-      const patientExists = await geminiService.checkPatientExists(fromNumber);
+      const patientExists = await geminiService.checkPatientExists(formattedPhoneNumber);
 
       if (patientExists) {
         // Get patient data from database
-        const patientData = await getPatientByPhone(fromNumber);
+        const patientData = await getPatientByPhone(formattedPhoneNumber);
 
         if (patientData) {
           // Generate response for existing patient
           response = await geminiService.generateExistingPatientResponse(
-            fromNumber
+            formattedPhoneNumber
           );
         } else {
           // Fallback if patient data not found
@@ -89,14 +93,14 @@ export async function POST(request: Request) {
         }
       } else {
         // Generate response for new patient registration
-        response = await geminiService.generateNewPatientResponse(fromNumber);
+        response = await geminiService.generateNewPatientResponse(formattedPhoneNumber);
       }
     } else {
-      const patientExists = await geminiService.checkPatientExists(fromNumber);
+      const patientExists = await geminiService.checkPatientExists(formattedPhoneNumber);
 
       // Check if we have an existing session for this phone number
       const { getPatientSession } = await import("@/lib/patient-sessions");
-      const existingSession = getPatientSession(fromNumber);
+      const existingSession = getPatientSession(formattedPhoneNumber);
       const hasExistingSession =
         existingSession.name ||
         existingSession.age ||
@@ -115,14 +119,14 @@ export async function POST(request: Request) {
           // Try to process and store patient data
           const result = await geminiService.processAndStorePatientData(
             incomingMessage,
-            fromNumber
+            formattedPhoneNumber
           );
 
           response = result.message;
         }
       } else if (patientExists) {
         // Handle ongoing conversation for existing patients
-        const patientData = await getPatientByPhone(fromNumber);
+        const patientData = await getPatientByPhone(formattedPhoneNumber);
 
         if (patientData) {
           // Create context-aware prompt
@@ -154,24 +158,8 @@ Remember: Provide support, not medical advice.`;
           ]);
         }
       } else {
-        // For new patients, continue with registration flow
-        const registrationPrompt = `New patient registration. Message: "${incomingMessage}"
-
-Instructions:
-- Help complete registration naturally
-- Ask for missing info: name, age, gender, disease, language
-- Do NOT ask for address or other fields not in database
-- Keep response under 2 sentences
-- Be encouraging and conversational
-- For disease/condition: Ask naturally to encourage descriptions like "What symptoms are you experiencing?" or "What brings you here today?"
-- Let the conversation flow naturally
-- Respond in the patient's preferred language if mentioned
-
-Current message: ${incomingMessage}`;
-
-        response = await geminiService.chat([
-          { role: "user", content: registrationPrompt },
-        ]);
+        // For new patients with no detected info and no session, ask for all required fields
+        response = await geminiService.generateNewPatientResponse(formattedPhoneNumber);
       }
     }
 

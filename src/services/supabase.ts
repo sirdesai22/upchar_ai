@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase-client';
+import { formatPhoneNumber } from '@/lib/utils';
 import { getPatientSession } from '@/lib/patient-sessions';
 
 export interface PatientData {
@@ -28,8 +29,8 @@ export async function checkPhoneExists(
   phoneColumn: string = 'phone_number'
 ): Promise<boolean> {
   try {
-    // Clean the phone number (remove spaces, dashes, etc.)
-    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
+    // Clean the phone number using the new formatting function
+    const cleanPhoneNumber = formatPhoneNumber(phoneNumber);
     
     // Query the patients table
     const { data, error } = await supabase
@@ -58,8 +59,8 @@ export async function checkPhoneExists(
  */
 export async function getPatientByPhone(phoneNumber: string): Promise<PatientData | null> {
   try {
-    // Clean the phone number (remove spaces, dashes, etc.)
-    const cleanPhoneNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
+    // Clean the phone number using the new formatting function
+    const cleanPhoneNumber = formatPhoneNumber(phoneNumber);
     
     // Query the patients table
     const { data, error } = await supabase
@@ -110,8 +111,8 @@ export async function insertPatient(patientData: {
   priority: 'High' | 'Medium' | 'Low';
 }): Promise<PatientData> {
   try {
-    // Clean the phone number
-    const cleanPhoneNumber = patientData.phone_number.replace(/[\s\-\(\)]/g, '');
+    // Clean the phone number using the new formatting function
+    const cleanPhoneNumber = formatPhoneNumber(patientData.phone_number);
     
     // Prepare data for insertion
     const insertData = {
