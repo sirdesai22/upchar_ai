@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { getValidAccessToken } from '@/lib/auth-utils'
+import { supabase } from '@/lib/supabase-client'
 
 export interface CalendarEvent {
   id?: string
@@ -55,10 +56,16 @@ export default function Calendar() {
       setLoading(true)
       setError(null)
       
-      const token = await getValidAccessToken()
-      if (!token) {
-        throw new Error('No valid access token available. Please sign in with Google.')
+      // const token = await getValidAccessToken()
+      // if (!token) {
+      //   throw new Error('No valid access token available. Please sign in with Google.')
+      // }
+      const { data:tokenData, error } = await supabase.from('token').select('token');
+      if (error) {
+        console.error('Error getting token:', error);
       }
+      const token = tokenData?.[0]?.token;
+      console.log("Token from database:", token);
 
       // Get events for the selected date and next 7 days
       const startDate = new Date(selectedDate)

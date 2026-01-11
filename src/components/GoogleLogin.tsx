@@ -18,12 +18,12 @@ export default function GoogleLogin() {
         setUser(session.user);
         // Store access token in localStorage if available
         if (session.provider_token) {
+          console.log("Provider token:", session.provider_token);
           localStorage.setItem('google_access_token', session.provider_token);
           //update the access token in the supabase dataabase table token
           const { data, error } = await supabase.from('token').update({
             token: session.provider_token,
-            id: 1,
-          });
+          }).eq('id', 1);
           if (error) {
             console.error('Error updating token:', error);
           }
@@ -32,8 +32,7 @@ export default function GoogleLogin() {
           //update the access token in the supabase dataabase table token
           const { data, error } = await supabase.from('token').update({
             token: session.access_token,
-            id: 1,
-          });
+          }).eq('id', 1);
           if (error) {
             console.error('Error updating token:', error);
           }
@@ -54,8 +53,7 @@ export default function GoogleLogin() {
             //update the access token in the supabase dataabase table token
             const { data, error } = await supabase.from('token').update({
               token: session.provider_token,
-              id: 1,
-            });
+            }).eq('id', 1);
             if (error) {
               console.error('Error updating token:', error);
             }
@@ -65,8 +63,7 @@ export default function GoogleLogin() {
             //update the access token in the supabase dataabase table token
             const { data, error } = await supabase.from('token').update({
               token: session.access_token,
-              id: 1,
-            });
+            }).eq('id', 1);
             if (error) {
               console.error('Error updating token:', error);
             }
